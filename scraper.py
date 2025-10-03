@@ -199,12 +199,13 @@ class BrowserScraper:
             page_source = self.driver.page_source.lower()
             
             # Check for "Out of stock"
-            has_out_of_stock = 'out of stock' in page_source
+            has_out_of_stock = 'Out of stock' in page_source
             
             if has_out_of_stock :
                 status = []
                 if has_out_of_stock:
                     status.append("Out of stock")
+                print("Product URL is OOS": product_url)
                 return False, f"Contains: {', '.join(status)}"
             else:
                 return True, "Available"
