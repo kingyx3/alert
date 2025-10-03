@@ -180,7 +180,7 @@ class BrowserScraper:
         return None
 
     def check_product_availability(self, product_url):
-        """Check if a product page contains 'Out of stock' text"""
+        """Check if a product page contains 'Buy Now' button text"""
         try:
             if not product_url or not product_url.startswith('http'):
                 # Convert relative URLs to absolute URLs
@@ -198,17 +198,14 @@ class BrowserScraper:
             # Get the page source and check for specific text
             page_source = self.driver.page_source.lower()
             
-            # Check for "Out of stock"
-            has_out_of_stock = 'Out of stock' in page_source
+            # Check for "Buy Now" button text
+            has_buy_now = 'buy now' in page_source
             
-            if has_out_of_stock :
-                status = []
-                if has_out_of_stock:
-                    status.append("Out of stock")
-                print("Product URL is OOS:", product_url)
-                return False, f"Contains: {', '.join(status)}"
+            if has_buy_now:
+                return True, "Available - Buy Now button found"
             else:
-                return True, "Available"
+                print("Product URL does not have Buy Now button:", product_url)
+                return False, "Not available - Buy Now button not found"
                 
         except Exception as e:
             print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
@@ -327,7 +324,7 @@ class BrowserScraper:
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:
-            print(f"Available products (without 'Out of stock'): {available_count}/{total_count}")
+            print(f"Available products (with 'Buy Now' button): {available_count}/{total_count}")
             print(f"{'='*80}")
 
         if not products:
@@ -365,7 +362,7 @@ class Scraper:
         }
 
     def check_product_availability(self, product_url):
-        """Check if a product page contains 'Out of stock' text"""
+        """Check if a product page contains 'Buy Now' button text"""
         try:
             if not product_url or not product_url.startswith('http'):
                 # Convert relative URLs to absolute URLs
@@ -384,16 +381,13 @@ class Scraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             page_text = soup.get_text().lower()
             
-            # Check for "Out of stock"
-            has_out_of_stock = 'out of stock' in page_text
+            # Check for "Buy Now" button text
+            has_buy_now = 'buy now' in page_text
             
-            if has_out_of_stock:
-                status = []
-                if has_out_of_stock:
-                    status.append("Out of stock")
-                return False, f"Contains: {', '.join(status)}"
+            if has_buy_now:
+                return True, "Available - Buy Now button found"
             else:
-                return True, "Available"
+                return False, "Not available - Buy Now button not found"
                 
         except Exception as e:
             print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
@@ -584,7 +578,7 @@ class Scraper:
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:
-            print(f"Available products (without 'Out of stock'): {available_count}/{total_count}")
+            print(f"Available products (with 'Buy Now' button): {available_count}/{total_count}")
             print(f"{'='*80}")
 
         if not products:
