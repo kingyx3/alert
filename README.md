@@ -8,6 +8,8 @@ A web scraper for the Pokemon Store on Lazada that handles dynamically loaded co
 - **Automatic Fallback**: Falls back to basic HTTP scraping if browser automation fails
 - **Robust Error Handling**: Gracefully handles various error conditions
 - **Multiple Product Selectors**: Tries various CSS selectors to find products
+- **Product Availability Filtering**: Checks each product URL for "Out of stock" or "Standard Edition" text and filters them out
+- **Smart URL Processing**: Handles both absolute and relative product URLs
 
 ## Requirements
 
@@ -32,7 +34,8 @@ The scraper will:
 2. Navigate to the Pokemon Store page
 3. Wait for products to load dynamically (up to 30 seconds)
 4. Extract product information (title, price, image, URL)
-5. Display results and save to JSON file
+5. Check each product URL for availability (filters out "Out of stock" or "Standard Edition" products)
+6. Display only available products and save results to JSON file
 
 ## How It Works
 
@@ -43,3 +46,5 @@ This scraper:
 - Implements intelligent waiting for dynamic content
 - Tries multiple CSS selectors to locate products
 - Handles various page layouts and structures
+- Filters products by checking individual product pages for availability
+- Returns only products that don't contain "Out of stock" or "Standard Edition" text

@@ -178,6 +178,43 @@ class BrowserScraper:
         
         return None
 
+    def check_product_availability(self, product_url):
+        """Check if a product page contains 'Out of stock' or 'Standard Edition' text"""
+        try:
+            if not product_url or not product_url.startswith('http'):
+                # Convert relative URLs to absolute URLs
+                if product_url.startswith('//'):
+                    product_url = 'https:' + product_url
+                elif product_url.startswith('/'):
+                    product_url = 'https://www.lazada.sg' + product_url
+                else:
+                    return False, "Invalid URL"
+            
+            print(f"[{datetime.now()}] Checking availability for: {product_url}")
+            self.driver.get(product_url)
+            time.sleep(2)  # Wait for page to load
+            
+            # Get the page source and check for specific text
+            page_source = self.driver.page_source.lower()
+            
+            # Check for "Out of stock" or "Standard Edition"
+            has_out_of_stock = 'out of stock' in page_source
+            has_standard_edition = 'standard edition' in page_source
+            
+            if has_out_of_stock or has_standard_edition:
+                status = []
+                if has_out_of_stock:
+                    status.append("Out of stock")
+                if has_standard_edition:
+                    status.append("Standard Edition")
+                return False, f"Contains: {', '.join(status)}"
+            else:
+                return True, "Available"
+                
+        except Exception as e:
+            print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
+            return False, f"Error: {str(e)}"
+
     def scrape_products(self):
         """Scrape products using browser automation to handle dynamic content"""
         try:
@@ -225,12 +262,30 @@ class BrowserScraper:
                 soup = BeautifulSoup(page_source, 'html.parser')
                 self.analyze_page_structure(soup)
             
-            print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products.")
+            # Check availability for each product
+            available_products = []
+            available_count = 0
+            
+            print(f"[{datetime.now()}] Checking availability for {len(products)} products...")
+            for product in products:
+                if product.get('url'):
+                    is_available, status = self.check_product_availability(product['url'])
+                    product['availability_status'] = status
+                    product['is_available'] = is_available
+                    
+                    if is_available:
+                        available_products.append(product)
+                        available_count += 1
+                else:
+                    product['availability_status'] = "No URL available"
+                    product['is_available'] = False
+            
+            print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products, {available_count} available.")
             
             # Display results
-            self.display_results(products)
+            self.display_results(available_products, available_count, len(products))
             
-            return products
+            return available_products
 
         except Exception as e:
             print(f"[{datetime.now()}] Browser scraper error: {str(e)}")
@@ -266,14 +321,18 @@ class BrowserScraper:
         js_scripts = [s for s in scripts if s.string and ('product' in s.string.lower() or 'item' in s.string.lower())]
         print(f"[{datetime.now()}] Found {len(js_scripts)} JavaScript blocks that might load products")
 
-    def display_results(self, products):
+    def display_results(self, products, available_count=None, total_count=None):
         """Display the scraped products in a formatted way"""
         print(f"\n{'='*80}")
         print(f"POKEMON STORE SCRAPING RESULTS (BROWSER) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}")
 
+        if available_count is not None and total_count is not None:
+            print(f"Available products (without 'Out of stock' or 'Standard Edition'): {available_count}/{total_count}")
+            print(f"{'='*80}")
+
         if not products:
-            print("No products found.")
+            print("No available products found.")
             return
 
         for idx, product in enumerate(products, 1):
@@ -281,12 +340,16 @@ class BrowserScraper:
             print(f"   Price: {product['price']}")
             if product['url']:
                 print(f"   URL: {product['url']}")
+            if product.get('availability_status'):
+                print(f"   Status: {product['availability_status']}")
             if product['image']:
                 print(f"   Image: {product['image']}")
             print(f"   Scraped: {product['scraped_at']}")
 
         print(f"\n{'='*80}")
-        print(f"Total products found: {len(products)}")
+        print(f"Available products listed: {len(products)}")
+        if available_count is not None and total_count is not None:
+            print(f"Total products checked: {total_count}")
         print(f"{'='*80}\n")
 
 class Scraper:
@@ -301,6 +364,44 @@ class Scraper:
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1'
         }
+
+    def check_product_availability(self, product_url):
+        """Check if a product page contains 'Out of stock' or 'Standard Edition' text"""
+        try:
+            if not product_url or not product_url.startswith('http'):
+                # Convert relative URLs to absolute URLs
+                if product_url.startswith('//'):
+                    product_url = 'https:' + product_url
+                elif product_url.startswith('/'):
+                    product_url = 'https://www.lazada.sg' + product_url
+                else:
+                    return False, "Invalid URL"
+            
+            print(f"[{datetime.now()}] Checking availability for: {product_url}")
+            response = requests.get(product_url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            
+            # Parse the product page content
+            soup = BeautifulSoup(response.content, 'html.parser')
+            page_text = soup.get_text().lower()
+            
+            # Check for "Out of stock" or "Standard Edition"
+            has_out_of_stock = 'out of stock' in page_text
+            has_standard_edition = 'standard edition' in page_text
+            
+            if has_out_of_stock or has_standard_edition:
+                status = []
+                if has_out_of_stock:
+                    status.append("Out of stock")
+                if has_standard_edition:
+                    status.append("Standard Edition")
+                return False, f"Contains: {', '.join(status)}"
+            else:
+                return True, "Available"
+                
+        except Exception as e:
+            print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
+            return False, f"Error: {str(e)}"
 
     def scrape_products(self):
         """Scrape products from the Pokemon Store"""
@@ -382,12 +483,30 @@ class Scraper:
                     except Exception as e:
                         continue
 
-            print(f"[{datetime.now()}] Scraping completed. Found {len(products)} products.")
+            # Check availability for each product
+            available_products = []
+            available_count = 0
+            
+            print(f"[{datetime.now()}] Checking availability for {len(products)} products...")
+            for product in products:
+                if product.get('url'):
+                    is_available, status = self.check_product_availability(product['url'])
+                    product['availability_status'] = status
+                    product['is_available'] = is_available
+                    
+                    if is_available:
+                        available_products.append(product)
+                        available_count += 1
+                else:
+                    product['availability_status'] = "No URL available"
+                    product['is_available'] = False
+
+            print(f"[{datetime.now()}] Scraping completed. Found {len(products)} products, {available_count} available.")
 
             # Display results
-            self.display_results(products)
+            self.display_results(available_products, available_count, len(products))
 
-            return products
+            return available_products
 
         except requests.RequestException as e:
             print(f"[{datetime.now()}] Request error: {str(e)}")
@@ -462,14 +581,18 @@ class Scraper:
         potential_containers = soup.find_all('div', class_=lambda x: x and any(keyword in x.lower() for keyword in ['product', 'item', 'card', 'box']))
         print(f"[{datetime.now()}] Found {len(potential_containers)} potential product containers")
 
-    def display_results(self, products):
+    def display_results(self, products, available_count=None, total_count=None):
         """Display the scraped products in a formatted way"""
         print(f"\n{'='*80}")
         print(f"POKEMON STORE SCRAPING RESULTS - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}")
 
+        if available_count is not None and total_count is not None:
+            print(f"Available products (without 'Out of stock' or 'Standard Edition'): {available_count}/{total_count}")
+            print(f"{'='*80}")
+
         if not products:
-            print("No products found.")
+            print("No available products found.")
             return
 
         for idx, product in enumerate(products, 1):
@@ -477,12 +600,16 @@ class Scraper:
             print(f"   Price: {product['price']}")
             if product['url']:
                 print(f"   URL: {product['url']}")
+            if product.get('availability_status'):
+                print(f"   Status: {product['availability_status']}")
             if product['image']:
                 print(f"   Image: {product['image']}")
             print(f"   Scraped: {product['scraped_at']}")
 
         print(f"\n{'='*80}")
-        print(f"Total products found: {len(products)}")
+        print(f"Available products listed: {len(products)}")
+        if available_count is not None and total_count is not None:
+            print(f"Total products checked: {total_count}")
         print(f"{'='*80}\n")
 
 def main():
@@ -491,18 +618,20 @@ def main():
 
     # Try browser scraper first for dynamic content handling
     browser_scraper = BrowserScraper()
-    products = browser_scraper.scrape_products()
+    available_products = browser_scraper.scrape_products()
 
     # Optional: Save results to JSON file
-    if products:
-        print('products', products)
-        filename = f"products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    if available_products:
+        print('Available products:', len(available_products))
+        filename = f"available_products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(products, f, indent=2, ensure_ascii=False)
-            print(f"[{datetime.now()}] Results saved to {filename}")
+                json.dump(available_products, f, indent=2, ensure_ascii=False)
+            print(f"[{datetime.now()}] Available products saved to {filename}")
         except Exception as e:
             print(f"[{datetime.now()}] Error saving results: {str(e)}")
+    else:
+        print(f"[{datetime.now()}] No available products found.")
 
     print(f"[{datetime.now()}] Scraper completed.")
 
