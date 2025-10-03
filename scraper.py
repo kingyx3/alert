@@ -166,10 +166,11 @@ class Scraper:
         # Count common elements
         divs = len(soup.find_all('div'))
         spans = len(soup.find_all('span'))
-        links = len(soup.find_all('a'))
+        link_texts = soup.find_all('a')
+        links = len(link_texts)
         images = len(soup.find_all('img'))
 
-        for link in links:
+        for link in link_texts:
             print(link)
 
         print(f"[{datetime.now()}] Page structure - Divs: {divs}, Spans: {spans}, Links: {links}, Images: {images}")
