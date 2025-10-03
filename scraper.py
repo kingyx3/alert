@@ -169,6 +169,9 @@ class Scraper:
         links = len(soup.find_all('a'))
         images = len(soup.find_all('img'))
 
+        for link in links:
+            print(link)
+
         print(f"[{datetime.now()}] Page structure - Divs: {divs}, Spans: {spans}, Links: {links}, Images: {images}")
 
         # Look for potential product containers
