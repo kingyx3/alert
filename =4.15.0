@@ -1,0 +1,70 @@
+Defaulting to user installation because normal site-packages is not writeable
+Collecting selenium
+  Downloading selenium-4.36.0-py3-none-any.whl.metadata
+     - 7.5 kB ? 0:00:00
+Collecting urllib3<3.0,>=2.5.0 (from urllib3[socks]<3.0,>=2.5.0->selenium)
+  Downloading urllib3-2.5.0-py3-none-any.whl.metadata
+     - 6.5 kB ? 0:00:00
+Collecting trio<1.0,>=0.30.0 (from selenium)
+  Downloading trio-0.31.0-py3-none-any.whl.metadata
+     - 8.5 kB ? 0:00:00
+Collecting trio-websocket<1.0,>=0.12.2 (from selenium)
+  Downloading trio_websocket-0.12.2-py3-none-any.whl.metadata
+     - 5.1 kB ? 0:00:00
+Collecting certifi>=2025.6.15 (from selenium)
+  Downloading certifi-2025.8.3-py3-none-any.whl.metadata
+     - 2.4 kB ? 0:00:00
+Collecting typing_extensions<5.0,>=4.14.0 (from selenium)
+  Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata
+     - 3.3 kB ? 0:00:00
+Collecting websocket-client<2.0,>=1.8.0 (from selenium)
+  Downloading websocket_client-1.8.0-py3-none-any.whl.metadata
+     - 8.0 kB ? 0:00:00
+Requirement already satisfied: attrs>=23.2.0 in /usr/lib/python3/dist-packages (from trio<1.0,>=0.30.0->selenium) (23.2.0)
+Collecting sortedcontainers (from trio<1.0,>=0.30.0->selenium)
+  Downloading sortedcontainers-2.4.0-py2.py3-none-any.whl.metadata
+     - 10.7 kB 19.1 MB/s 0:00:00
+Requirement already satisfied: idna in /usr/lib/python3/dist-packages (from trio<1.0,>=0.30.0->selenium) (3.6)
+Collecting outcome (from trio<1.0,>=0.30.0->selenium)
+  Downloading outcome-1.3.0.post0-py2.py3-none-any.whl.metadata
+     - 2.6 kB ? 0:00:00
+Collecting sniffio>=1.3.0 (from trio<1.0,>=0.30.0->selenium)
+  Downloading sniffio-1.3.1-py3-none-any.whl.metadata
+     - 3.9 kB ? 0:00:00
+Collecting wsproto>=0.14 (from trio-websocket<1.0,>=0.12.2->selenium)
+  Downloading wsproto-1.2.0-py3-none-any.whl.metadata
+     - 5.6 kB ? 0:00:00
+Collecting pysocks!=1.5.7,<2.0,>=1.5.6 (from urllib3[socks]<3.0,>=2.5.0->selenium)
+  Downloading PySocks-1.7.1-py3-none-any.whl.metadata
+     - 13.2 kB 96.9 MB/s 0:00:00
+Collecting h11<1,>=0.9.0 (from wsproto>=0.14->trio-websocket<1.0,>=0.12.2->selenium)
+  Downloading h11-0.16.0-py3-none-any.whl.metadata
+     - 8.3 kB ? 0:00:00
+Downloading selenium-4.36.0-py3-none-any.whl
+   - 9.6 MB 158.0 MB/s 0:00:00
+Downloading certifi-2025.8.3-py3-none-any.whl
+   - 161.2 kB 181.2 MB/s 0:00:00
+Downloading trio-0.31.0-py3-none-any.whl
+   - 512.7 kB 147.9 MB/s 0:00:00
+Downloading trio_websocket-0.12.2-py3-none-any.whl
+   - 21.2 kB 135.9 MB/s 0:00:00
+Downloading typing_extensions-4.15.0-py3-none-any.whl
+   - 44.6 kB 160.2 MB/s 0:00:00
+Downloading urllib3-2.5.0-py3-none-any.whl
+   - 129.8 kB 176.1 MB/s 0:00:00
+Downloading websocket_client-1.8.0-py3-none-any.whl
+   - 58.8 kB 170.5 MB/s 0:00:00
+Downloading outcome-1.3.0.post0-py2.py3-none-any.whl
+   - 10.7 kB 16.6 MB/s 0:00:00
+Downloading PySocks-1.7.1-py3-none-any.whl
+   - 16.7 kB 55.0 MB/s 0:00:00
+Downloading sniffio-1.3.1-py3-none-any.whl
+   - 10.2 kB ? 0:00:00
+Downloading wsproto-1.2.0-py3-none-any.whl
+   - 24.2 kB 129.6 MB/s 0:00:00
+Downloading sortedcontainers-2.4.0-py2.py3-none-any.whl
+   - 29.6 kB 176.1 MB/s 0:00:00
+Downloading h11-0.16.0-py3-none-any.whl
+   - 37.5 kB 135.3 MB/s 0:00:00
+Installing collected packages: sortedcontainers, websocket-client, urllib3, typing_extensions, sniffio, pysocks, outcome, h11, certifi, wsproto, trio, trio-websocket, selenium
+Successfully installed certifi-2025.8.3 h11-0.16.0 outcome-1.3.0.post0 pysocks-1.7.1 selenium-4.36.0 sniffio-1.3.1 sortedcontainers-2.4.0 trio-0.31.0 trio-websocket-0.12.2 typing_extensions-4.15.0 urllib3-2.5.0 websocket-client-1.8.0 wsproto-1.2.0

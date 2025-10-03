@@ -6,6 +6,289 @@ from datetime import datetime
 import json
 import time
 
+try:
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.chrome.options import Options
+    from selenium.common.exceptions import TimeoutException, NoSuchElementException
+    from webdriver_manager.chrome import ChromeDriverManager
+    from selenium.webdriver.chrome.service import Service
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+
+class BrowserScraper:
+    """Browser-based scraper that can handle dynamic content"""
+    def __init__(self):
+        self.base_url = "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.68ae5edfACSkfR&q=All-Products&shop_category_ids=762252&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
+        self.driver = None
+
+    def setup_driver(self):
+        """Setup Chrome driver with appropriate options"""
+        if not SELENIUM_AVAILABLE:
+            raise ImportError("Selenium is not available")
+        
+        chrome_options = Options()
+        chrome_options.add_argument('--headless')  # Run in headless mode
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-images')  # Disable images for faster loading
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+        
+        try:
+            # Try to use the system chromedriver first
+            service = Service('/usr/bin/chromedriver')
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            return True
+        except Exception as e:
+            print(f"[{datetime.now()}] Failed to setup Chrome driver with system chromedriver: {str(e)}")
+            try:
+                # Fallback to webdriver manager if system driver fails
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                return True
+            except Exception as e2:
+                print(f"[{datetime.now()}] Failed to setup Chrome driver with webdriver manager: {str(e2)}")
+                return False
+
+    def wait_for_products_to_load(self, timeout=20):
+        """Wait for products to dynamically load on the page"""
+        try:
+            # Common selectors for Lazada product items
+            product_selectors = [
+                '[data-qa-locator="product-item"]',
+                '.product-item',
+                '.item-box',
+                '.c2prKC',
+                '.product',
+                '[data-testid="product-item"]',
+                '.item-card',
+                '.product-card'
+            ]
+            
+            for selector in product_selectors:
+                try:
+                    wait = WebDriverWait(self.driver, timeout)
+                    elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
+                    if elements:
+                        print(f"[{datetime.now()}] Found {len(elements)} products using selector: {selector}")
+                        return elements
+                except TimeoutException:
+                    continue
+            
+            # If specific selectors don't work, try waiting for any elements with price indicators
+            price_selectors = [
+                '[class*="price"]',
+                '[class*="Price"]',
+                '[data-testid*="price"]'
+            ]
+            
+            for selector in price_selectors:
+                try:
+                    wait = WebDriverWait(self.driver, timeout)
+                    elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
+                    if elements:
+                        print(f"[{datetime.now()}] Found {len(elements)} price elements, extracting parent containers")
+                        # Get parent elements that likely contain product info
+                        product_containers = []
+                        for elem in elements:
+                            parent = elem.find_element(By.XPATH, "./../..")
+                            if parent not in product_containers:
+                                product_containers.append(parent)
+                        return product_containers[:20]  # Limit to first 20
+                except TimeoutException:
+                    continue
+            
+            print(f"[{datetime.now()}] No products found with known selectors within {timeout} seconds")
+            return []
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Error waiting for products: {str(e)}")
+            return []
+
+    def extract_product_info_from_element(self, element):
+        """Extract product information from a selenium web element"""
+        try:
+            product = {}
+            
+            # Extract title
+            title_selectors = [
+                'h2', 'h3', '.title', '[data-qa-locator="product-name"]', 
+                'a[title]', '[class*="title"]', '[class*="Title"]'
+            ]
+            title = ""
+            for selector in title_selectors:
+                try:
+                    title_elem = element.find_element(By.CSS_SELECTOR, selector)
+                    title = title_elem.get_attribute('title') or title_elem.text.strip()
+                    if title:
+                        break
+                except NoSuchElementException:
+                    continue
+            
+            # Extract price
+            price_selectors = [
+                '.price', '[data-qa-locator="product-price"]', '.current-price', 
+                '.sale-price', '[class*="price"]', '[class*="Price"]'
+            ]
+            price = ""
+            for selector in price_selectors:
+                try:
+                    price_elem = element.find_element(By.CSS_SELECTOR, selector)
+                    price = price_elem.text.strip()
+                    if price:
+                        break
+                except NoSuchElementException:
+                    continue
+            
+            # Extract image URL
+            image_url = ""
+            try:
+                img_elem = element.find_element(By.CSS_SELECTOR, 'img')
+                image_url = img_elem.get_attribute('src') or img_elem.get_attribute('data-src') or ""
+            except NoSuchElementException:
+                pass
+            
+            # Extract product URL
+            product_url = ""
+            try:
+                link_elem = element.find_element(By.CSS_SELECTOR, 'a')
+                product_url = link_elem.get_attribute('href') or ""
+            except NoSuchElementException:
+                pass
+            
+            if title or price:  # Only return if we have some useful information
+                product = {
+                    'title': title or 'No title available',
+                    'price': price or 'Price not available',
+                    'image': image_url,
+                    'url': product_url,
+                    'scraped_at': datetime.now().isoformat()
+                }
+                return product
+                
+        except Exception as e:
+            print(f"[{datetime.now()}] Error extracting product info: {str(e)}")
+        
+        return None
+
+    def scrape_products(self):
+        """Scrape products using browser automation to handle dynamic content"""
+        try:
+            print(f"[{datetime.now()}] Starting browser-based scrape of Pokemon Store...")
+            print(f"URL: {self.base_url}")
+
+            if not SELENIUM_AVAILABLE:
+                print(f"[{datetime.now()}] Selenium not available, falling back to basic scraper...")
+                fallback_scraper = Scraper()
+                return fallback_scraper.scrape_products()
+
+            # Setup browser driver
+            if not self.setup_driver():
+                print(f"[{datetime.now()}] Failed to setup browser, falling back to basic scraper...")
+                fallback_scraper = Scraper()
+                return fallback_scraper.scrape_products()
+
+            # Navigate to the page
+            print(f"[{datetime.now()}] Navigating to the page...")
+            self.driver.get(self.base_url)
+            
+            # Wait a moment for initial page load
+            time.sleep(3)
+            
+            # Wait for products to load dynamically
+            print(f"[{datetime.now()}] Waiting for products to load...")
+            product_elements = self.wait_for_products_to_load(timeout=30)
+            
+            products = []
+            if product_elements:
+                print(f"[{datetime.now()}] Extracting information from {len(product_elements)} products...")
+                for idx, element in enumerate(product_elements):
+                    try:
+                        product = self.extract_product_info_from_element(element)
+                        if product:
+                            products.append(product)
+                    except Exception as e:
+                        print(f"[{datetime.now()}] Error extracting product {idx}: {str(e)}")
+                        continue
+            
+            if not products:
+                print(f"[{datetime.now()}] No products found with browser scraper, analyzing page...")
+                # Get page source and analyze
+                page_source = self.driver.page_source
+                soup = BeautifulSoup(page_source, 'html.parser')
+                self.analyze_page_structure(soup)
+            
+            print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products.")
+            
+            # Display results
+            self.display_results(products)
+            
+            return products
+
+        except Exception as e:
+            print(f"[{datetime.now()}] Browser scraper error: {str(e)}")
+            print(f"[{datetime.now()}] Falling back to basic scraper...")
+            fallback_scraper = Scraper()
+            return fallback_scraper.scrape_products()
+        
+        finally:
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except:
+                    pass
+
+    def analyze_page_structure(self, soup):
+        """Analyze the page structure to understand the layout"""
+        print(f"[{datetime.now()}] Page title: {soup.title.string if soup.title else 'No title'}")
+
+        # Count common elements
+        divs = len(soup.find_all('div'))
+        spans = len(soup.find_all('span'))
+        links = len(soup.find_all('a'))
+        images = len(soup.find_all('img'))
+
+        print(f"[{datetime.now()}] Page structure - Divs: {divs}, Spans: {spans}, Links: {links}, Images: {images}")
+
+        # Look for potential product containers
+        potential_containers = soup.find_all('div', class_=lambda x: x and any(keyword in x.lower() for keyword in ['product', 'item', 'card', 'box']))
+        print(f"[{datetime.now()}] Found {len(potential_containers)} potential product containers")
+        
+        # Look for script tags that might load products
+        scripts = soup.find_all('script')
+        js_scripts = [s for s in scripts if s.string and ('product' in s.string.lower() or 'item' in s.string.lower())]
+        print(f"[{datetime.now()}] Found {len(js_scripts)} JavaScript blocks that might load products")
+
+    def display_results(self, products):
+        """Display the scraped products in a formatted way"""
+        print(f"\n{'='*80}")
+        print(f"POKEMON STORE SCRAPING RESULTS (BROWSER) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{'='*80}")
+
+        if not products:
+            print("No products found.")
+            return
+
+        for idx, product in enumerate(products, 1):
+            print(f"\n{idx}. {product['title']}")
+            print(f"   Price: {product['price']}")
+            if product['url']:
+                print(f"   URL: {product['url']}")
+            if product['image']:
+                print(f"   Image: {product['image']}")
+            print(f"   Scraped: {product['scraped_at']}")
+
+        print(f"\n{'='*80}")
+        print(f"Total products found: {len(products)}")
+        print(f"{'='*80}\n")
+
 class Scraper:
     def __init__(self):
         self.base_url = "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.68ae5edfACSkfR&q=All-Products&shop_category_ids=762252&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
@@ -206,8 +489,9 @@ def main():
     """Main function to run the scraper"""
     print(f"[{datetime.now()}] Scraper starting...")
 
-    scraper = Scraper()
-    products = scraper.scrape_products()
+    # Try browser scraper first for dynamic content handling
+    browser_scraper = BrowserScraper()
+    products = browser_scraper.scrape_products()
 
     # Optional: Save results to JSON file
     if products:
