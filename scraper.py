@@ -179,7 +179,7 @@ class BrowserScraper:
         return None
 
     def check_product_availability(self, product_url):
-        """Check if a product page contains 'Out of stock' or 'Standard Edition' text"""
+        """Check if a product page contains 'Out of stock' text"""
         try:
             if not product_url or not product_url.startswith('http'):
                 # Convert relative URLs to absolute URLs
@@ -197,16 +197,13 @@ class BrowserScraper:
             # Get the page source and check for specific text
             page_source = self.driver.page_source.lower()
             
-            # Check for "Out of stock" or "Standard Edition"
+            # Check for "Out of stock"
             has_out_of_stock = 'out of stock' in page_source
-            has_standard_edition = 'standard edition' in page_source
             
-            if has_out_of_stock or has_standard_edition:
+            if has_out_of_stock :
                 status = []
                 if has_out_of_stock:
                     status.append("Out of stock")
-                if has_standard_edition:
-                    status.append("Standard Edition")
                 return False, f"Contains: {', '.join(status)}"
             else:
                 return True, "Available"
@@ -328,7 +325,7 @@ class BrowserScraper:
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:
-            print(f"Available products (without 'Out of stock' or 'Standard Edition'): {available_count}/{total_count}")
+            print(f"Available products (without 'Out of stock'): {available_count}/{total_count}")
             print(f"{'='*80}")
 
         if not products:
@@ -366,7 +363,7 @@ class Scraper:
         }
 
     def check_product_availability(self, product_url):
-        """Check if a product page contains 'Out of stock' or 'Standard Edition' text"""
+        """Check if a product page contains 'Out of stock' text"""
         try:
             if not product_url or not product_url.startswith('http'):
                 # Convert relative URLs to absolute URLs
@@ -385,16 +382,13 @@ class Scraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             page_text = soup.get_text().lower()
             
-            # Check for "Out of stock" or "Standard Edition"
+            # Check for "Out of stock"
             has_out_of_stock = 'out of stock' in page_text
-            has_standard_edition = 'standard edition' in page_text
             
-            if has_out_of_stock or has_standard_edition:
+            if has_out_of_stock:
                 status = []
                 if has_out_of_stock:
                     status.append("Out of stock")
-                if has_standard_edition:
-                    status.append("Standard Edition")
                 return False, f"Contains: {', '.join(status)}"
             else:
                 return True, "Available"
@@ -588,7 +582,7 @@ class Scraper:
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:
-            print(f"Available products (without 'Out of stock' or 'Standard Edition'): {available_count}/{total_count}")
+            print(f"Available products (without 'Out of stock'): {available_count}/{total_count}")
             print(f"{'='*80}")
 
         if not products:
