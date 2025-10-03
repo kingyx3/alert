@@ -539,7 +539,7 @@ class Scraper:
         if link_elem:
             product_url = link_elem.get('href', "")
 
-        if title or price:  # Only return if we have some useful information
+        if title:
             product = {
                 'title': title or 'No title available',
                 'price': price or 'Price not available',
@@ -587,14 +587,11 @@ class Scraper:
 
         for idx, product in enumerate(products, 1):
             print(f"\n{idx}. {product['title']}")
-            print(f"   Price: {product['price']}")
             if product['url']:
                 print(f"   URL: {product['url']}")
             if product.get('availability_status'):
                 print(f"   Status: {product['availability_status']}")
-            if product['image']:
-                print(f"   Image: {product['image']}")
-            print(f"   Scraped: {product['scraped_at']}")
+            
 
         print(f"\n{'='*80}")
         print(f"Available products listed: {len(products)}")
