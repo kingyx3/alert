@@ -54,6 +54,7 @@ def demo_enhanced_scraper():
                 <h1>Pokemon Premium Card Pack</h1>
                 <p>This is a premium collection with exclusive cards!</p>
                 <div class="stock-status">In Stock - Ready to Ship</div>
+                <button class="buy-btn">Buy Now</button>
             </body></html>
         """,
         'https://www.lazada.sg/product/standard-deck': """
@@ -61,6 +62,7 @@ def demo_enhanced_scraper():
                 <h1>Pokemon Standard Edition Deck</h1>
                 <p>Basic starter deck for beginners</p>
                 <div class="stock-status">Available Now</div>
+                <button class="buy-btn">Buy Now</button>
             </body></html>
         """,
         'https://www.lazada.sg/product/special-collection': """
@@ -68,6 +70,7 @@ def demo_enhanced_scraper():
                 <h1>Pokemon Special Collection</h1>
                 <p>Limited edition collector's set</p>
                 <div class="stock-status">Currently Out of Stock</div>
+                <button class="buy-btn disabled">Out of Stock</button>
             </body></html>
         """
     }
@@ -88,7 +91,7 @@ def demo_enhanced_scraper():
     print(f"\n[{datetime.now()}] Demo Results Summary:")
     print(f"Available products found: {len(available_products)}")
     
-    print(f"\n[{datetime.now()}] Product URLs that do NOT contain 'Out of stock' or 'Standard Edition':")
+    print(f"\n[{datetime.now()}] Product URLs that contain 'Buy Now' button:")
     for i, product in enumerate(available_products, 1):
         print(f"{i}. {product['title']}")
         print(f"   URL: {product['url']}")
