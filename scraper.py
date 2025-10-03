@@ -84,7 +84,8 @@ class Scraper:
                 links = soup.find_all('a', href=True)
                 product_links = [link for link in links if '/products/' in link.get('href', '') or 'item' in link.get('href', '').lower()]
 
-                for link in product_links[:10]:  # Limit to first 10
+                for link in product_links:  # Limit to first 10
+                    print('link', link)
                     try:
                         product = {
                             'title': link.get_text(strip=True) or 'No title available',
