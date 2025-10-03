@@ -205,7 +205,7 @@ class BrowserScraper:
                 status = []
                 if has_out_of_stock:
                     status.append("Out of stock")
-                print("Product URL is OOS": product_url)
+                print("Product URL is OOS:", product_url)
                 return False, f"Contains: {', '.join(status)}"
             else:
                 return True, "Available"
