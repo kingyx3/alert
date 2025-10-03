@@ -48,3 +48,45 @@ This scraper:
 - Handles various page layouts and structures
 - Filters products by checking individual product pages for availability
 - Returns only products that contain "Buy Now" button text
+- **NEW**: Stores scraping results in formatted text and sends notifications to Telegram
+
+## Notification Features
+
+The scraper now includes integrated Firebase and Telegram notification capabilities:
+
+### Features
+- **Firebase Integration**: Fetches Telegram chat IDs from Firebase Realtime Database
+- **Telegram Bot**: Sends formatted product notifications to multiple chats
+- **Text Formatting**: Converts scraping results into user-friendly messages with emojis
+- **Error Handling**: Gracefully handles missing credentials and failed notifications
+- **Batch Messaging**: Supports sending to multiple chat IDs simultaneously
+
+### Setup for Notifications
+
+1. **Firebase Setup**:
+   ```bash
+   # Set environment variables
+   export FIREBASE_SERVICE_ACCOUNT_PATH="/path/to/serviceAccount.json"
+   export FIREBASE_DATABASE_URL="https://your-project-id-default-rtdb.firebaseio.com/"
+   ```
+
+2. **Telegram Bot Setup**:
+   ```bash
+   # Set bot token from @BotFather
+   export TELEGRAM_BOT_TOKEN="your_telegram_bot_token_here"
+   ```
+
+3. **Firebase Database Structure**:
+   ```json
+   {
+     "telegram_chat_ids": [
+       "123456789",
+       "987654321",
+       "-555666777"
+     ]
+   }
+   ```
+
+### Demo Scripts
+- `demo_notification.py` - Test notification service with mock data
+- `config_example.py` - Configuration examples and setup instructions

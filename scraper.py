@@ -607,6 +607,32 @@ def main():
     browser_scraper = BrowserScraper()
     available_products = browser_scraper.scrape_products()
 
+    # Store scraping results in a single text variable and send to Telegram
+    try:
+        from notification_service import create_notification_service
+        
+        # Create notification service
+        notification_service = create_notification_service()
+        
+        # Format products into text and send notifications
+        if available_products:
+            print(f"[{datetime.now()}] Found {len(available_products)} available products")
+            
+            # Send notifications to Telegram chats from Firebase
+            success = notification_service.notify_products(available_products)
+            
+            if success:
+                print(f"[{datetime.now()}] Product notifications sent successfully")
+            else:
+                print(f"[{datetime.now()}] Failed to send product notifications")
+        else:
+            print(f"[{datetime.now()}] No available products found - no notifications sent")
+            
+    except ImportError:
+        print(f"[{datetime.now()}] Notification service not available - running without notifications")
+    except Exception as e:
+        print(f"[{datetime.now()}] Error in notification service: {str(e)}")
+
     # Optional: Save results to JSON file
     if available_products:
         print('Available products:', len(available_products))
