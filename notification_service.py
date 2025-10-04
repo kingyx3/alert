@@ -60,21 +60,31 @@ class NotificationService:
             print(f"[{datetime.now()}] Error initializing Telegram bot: {str(e)}")
 
     
-    def format_products_text(self, products: List[Dict[str, Any]]) -> str:
+    def format_products_text(self, products: List[Dict[str, Any]], total_count: int = None, sold_count: int = None) -> str:
         """
         Format the scraped products into a single text message
         
         Args:
             products (List[Dict]): List of product dictionaries
+            total_count (int): Total number of products checked
+            sold_count (int): Number of products sold out
             
         Returns:
             str: Formatted text string
         """
         if not products:
-            return "🚫 No available products found at this time."
+            message = "🚫 No available products found at this time."
+            if sold_count is not None and sold_count > 0:
+                message += f"\n💔 {sold_count} products sold out as of scraping time."
+            return message
         
         header = f"🛒 Store Alert - {(datetime.now()+timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')}\n"
-        header += f"📦 Found {len(products)} available products:\n\n"
+        header += f"📦 Found {len(products)} available products"
+        if total_count is not None:
+            header += f" out of {total_count} checked"
+        if sold_count is not None and sold_count > 0:
+            header += f"\n💔 {sold_count} products sold out as of scraping time"
+        header += ":\n\n"
         
         product_lines = []
         for idx, product in enumerate(products, 1):
@@ -129,12 +139,14 @@ class NotificationService:
             print(f"[{datetime.now()}] Failed to send message to channel {self.telegram_channel_id}: {str(e)}")
             return False
     
-    def notify_products(self, products: List[Dict[str, Any]]) -> bool:
+    def notify_products(self, products: List[Dict[str, Any]], total_count: int = None, sold_count: int = None) -> bool:
         """
         Complete notification workflow: format message and send to channel
         
         Args:
             products (List[Dict]): List of scraped products
+            total_count (int): Total number of products checked
+            sold_count (int): Number of products sold out
             
         Returns:
             bool: True if message was sent successfully
@@ -145,7 +157,7 @@ class NotificationService:
                 return False
             
             # Format products into text message
-            message = self.format_products_text(products)
+            message = self.format_products_text(products, total_count, sold_count)
             
             # Send to configured channel
             success = self.send_to_telegram_channel(message)

@@ -347,6 +347,7 @@ class BrowserScraper:
             # Check availability for each product
             available_products = []
             available_count = 0
+            sold_count = 0
             
             print(f"[{datetime.now()}] Checking availability for {len(products)} products...")
             for product in products:
@@ -359,21 +360,34 @@ class BrowserScraper:
                     if is_available:
                         available_products.append(product)
                         available_count += 1
+                    else:
+                        sold_count += 1
                 else:
                     product['availability_status'] = "No URL available"
                     product['is_available'] = False
                     product['price'] = None
+                    sold_count += 1
             
-            print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products, {available_count} available.")
+            print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products, {available_count} available, {sold_count} sold out.")
             
             # Display results
-            self.display_results(available_products, available_count, len(products))
+            self.display_results(available_products, available_count, len(products), sold_count)
             
-            return available_products
+            return {
+                'available_products': available_products,
+                'available_count': available_count,
+                'total_count': len(products),
+                'sold_count': sold_count
+            }
 
         except Exception as e:
             print(f"[{datetime.now()}] Browser scraper error: {str(e)}")
-            return []
+            return {
+                'available_products': [],
+                'available_count': 0,
+                'total_count': 0,
+                'sold_count': 0
+            }
         
         finally:
             if self.driver:
@@ -382,7 +396,7 @@ class BrowserScraper:
                 except:
                     pass
 
-    def display_results(self, products, available_count=None, total_count=None):
+    def display_results(self, products, available_count=None, total_count=None, sold_count=None):
         """Display the scraped products in a formatted way"""
         print(f"\n{'='*80}")
         print(f"STORE SCRAPING RESULTS (BROWSER) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -390,6 +404,8 @@ class BrowserScraper:
 
         if available_count is not None and total_count is not None:
             print(f"Available products: {available_count}/{total_count}")
+            if sold_count is not None:
+                print(f"Sold out products: {sold_count} as of scraping time")
             print(f"{'='*80}")
 
         if not products:
@@ -412,6 +428,8 @@ class BrowserScraper:
         print(f"Available products listed: {len(products)}")
         if available_count is not None and total_count is not None:
             print(f"Total products checked: {total_count}")
+            if sold_count is not None:
+                print(f"Products sold out: {sold_count}")
         print(f"{'='*80}\n")
 
 def main():
@@ -420,7 +438,22 @@ def main():
 
     # Browser-only scraper
     browser_scraper = BrowserScraper()
-    available_products = browser_scraper.scrape_products()
+    scrape_results = browser_scraper.scrape_products()
+    
+    # Handle case where scrape_results might be None or not a dict
+    if not isinstance(scrape_results, dict):
+        scrape_results = {
+            'available_products': [],
+            'available_count': 0,
+            'total_count': 0,
+            'sold_count': 0
+        }
+    
+    # Extract results
+    available_products = scrape_results.get('available_products', [])
+    available_count = scrape_results.get('available_count', 0)
+    total_count = scrape_results.get('total_count', 0)
+    sold_count = scrape_results.get('sold_count', 0)
 
     # Store scraping results in a single text variable and send to Telegram
     try:
@@ -434,7 +467,7 @@ def main():
             print(f"[{datetime.now()}] Found {len(available_products)} available products")
             
             # Send notifications to Telegram chats from Firebase
-            success = notification_service.notify_products(available_products)
+            success = notification_service.notify_products(available_products, total_count, sold_count)
             
             if success:
                 print(f"[{datetime.now()}] Product notifications sent successfully")
