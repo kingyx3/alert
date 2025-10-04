@@ -185,6 +185,11 @@ class BrowserScraper:
             self.driver.get(product_url)
             time.sleep(3)  # Wait for page to load and JS to execute
             
+            # Validate that the page actually loaded correctly for this URL
+            if not self.validate_page_loaded(product_url):
+                print(f"Page validation failed for: {product_url}")
+                return False, "Page failed to load correctly", None
+            
             # Extract price information
             price = self.extract_price_from_page()
             
@@ -263,6 +268,51 @@ class BrowserScraper:
         except Exception as e:
             print(f"[{datetime.now()}] Error checking availability indicators: {str(e)}")
             return False, f"Error checking indicators: {str(e)}"
+
+    def validate_page_loaded(self, expected_url):
+        """Validate that the current page has actually loaded correctly"""
+        try:
+            current_url = self.driver.current_url
+            page_source = self.driver.page_source
+            
+            # Check 1: Verify current URL matches or is related to expected URL
+            # Handle redirects by checking if the domain/path is reasonably related
+            if not current_url or current_url == "data:,":
+                print(f"[{datetime.now()}] Page validation failed: Invalid current URL: {current_url}")
+                return False
+            
+            # Check 2: Ensure page has meaningful content (not empty or error page)
+            if not page_source or len(page_source.strip()) < 50:
+                print(f"[{datetime.now()}] Page validation failed: Page content too short or empty")
+                return False
+            
+            # Check 3: Look for common error indicators that suggest page didn't load properly
+            page_lower = page_source.lower()
+            error_indicators = [
+                'page not found', '404 error', 'server error', '500 error',
+                'network error', 'connection failed', 'timeout', 
+                'access denied', 'forbidden', 'not available in your region'
+            ]
+            
+            if any(indicator in page_lower for indicator in error_indicators):
+                print(f"[{datetime.now()}] Page validation failed: Error page detected")
+                return False
+            
+            # Check 4: Verify the page looks like a product page (has typical e-commerce elements)
+            product_indicators = [
+                'price', 'product', 'buy', 'cart', 'add to cart', 'purchase', 'order'
+            ]
+            
+            if not any(indicator in page_lower for indicator in product_indicators):
+                print(f"[{datetime.now()}] Page validation failed: No product-related content found")
+                return False
+            
+            print(f"[{datetime.now()}] Page validation passed for: {expected_url}")
+            return True
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Error validating page load: {str(e)}")
+            return False
 
     def check_quantity_selector_disabled(self):
         """Check if quantity number picker/selector is disabled"""
