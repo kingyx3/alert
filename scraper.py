@@ -291,7 +291,11 @@ class BrowserScraper:
             error_indicators = [
                 'page not found', '404 error', 'server error', '500 error',
                 'network error', 'connection failed', 'timeout', 
-                'access denied', 'forbidden', 'not available in your region'
+                'access denied', 'forbidden', 'not available in your region',
+                'blocked', 'captcha', 'bot detection', 'unusual traffic',
+                'temporarily unavailable', 'maintenance', 'under maintenance',
+                'error occurred', 'something went wrong', 'try again later',
+                'internal server error', 'bad gateway', 'service unavailable'
             ]
             
             if any(indicator in page_lower for indicator in error_indicators):
@@ -299,15 +303,36 @@ class BrowserScraper:
                 return False
             
             # Check 4: Verify the page looks like a product page (has typical e-commerce elements)
+            # Expanded indicators to be more inclusive for different page formats and languages
             product_indicators = [
-                'price', 'product', 'buy', 'cart', 'add to cart', 'purchase', 'order'
+                # Original indicators
+                'price', 'product', 'buy', 'cart', 'add to cart', 'purchase', 'order',
+                # Common e-commerce variations
+                'add-to-cart', 'buy now', 'buy-now', 'quantity', 'qty', 'delivery',
+                'shipping', 'checkout', 'item', 'sku', 'stock', 'available',
+                # Lazada-specific indicators
+                'pdp-', 'lazada', 'item-detail', 'product-detail', 'current-price',
+                'original-price', 'sale-price', 'final-price',
+                # Currency symbols and price formats
+                's$', '$', '€', '£', '¥', 'usd', 'sgd', 'price_', 'currency',
+                # Additional product page elements
+                'rating', 'review', 'star', 'seller', 'brand', 'description',
+                'specification', 'warranty', 'return', 'exchange'
             ]
             
-            if not any(indicator in page_lower for indicator in product_indicators):
+            found_indicators = [indicator for indicator in product_indicators if indicator in page_lower]
+            
+            if not found_indicators:
                 print(f"[{datetime.now()}] Page validation failed: No product-related content found")
+                print(f"[{datetime.now()}] Page title: {self.driver.title}")
+                print(f"[{datetime.now()}] Page source length: {len(page_source)}")
+                # Show a small sample of page content for debugging
+                sample_content = page_source[:500] if len(page_source) > 500 else page_source
+                print(f"[{datetime.now()}] Page content sample: {sample_content[:200]}...")
                 return False
             
             print(f"[{datetime.now()}] Page validation passed for: {expected_url}")
+            print(f"[{datetime.now()}] Found indicators: {found_indicators[:5]}...")  # Show first 5 found indicators
             return True
             
         except Exception as e:
