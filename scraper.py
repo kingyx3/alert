@@ -27,8 +27,7 @@ class BrowserScraper:
             self.base_url = base_url
         else:
             self.base_url = os.getenv(
-                'SCRAPING_URL',
-                "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.28e55edfSHrAL6&q=All-Products&shop_category_ids=762253&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
+                'SCRAPING_URL'
             )
         self.driver = None
 
