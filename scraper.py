@@ -246,30 +246,16 @@ class BrowserScraper:
             return None
 
     def check_availability_indicators(self):
-        """Check multiple indicators to determine product availability"""
+        """Check for buy now indicators to determine product availability"""
         try:
             page_source = self.driver.page_source.lower()
             
-            # Check for positive availability indicators
+            # Check for positive availability indicators (buy now type buttons)
             buy_now_indicators = ['buy now', 'add to cart', 'purchase', 'order now', 'checkout']
             has_buy_indicators = any(indicator in page_source for indicator in buy_now_indicators)
             
-            # Check for negative availability indicators
-            unavailable_indicators = [
-                'out of stock', 'sold out', 'not available', 'unavailable',
-                'temporarily unavailable', 'stock out', 'no stock'
-            ]
-            has_unavailable_text = any(indicator in page_source for indicator in unavailable_indicators)
-            
-            # Check quantity selector state
-            quantity_disabled = self.check_quantity_selector_disabled()
-            
-            # Determine availability based on multiple factors
-            if has_unavailable_text:
-                return False, "Out of stock text found"
-            elif quantity_disabled:
-                return False, "Quantity selector disabled"
-            elif has_buy_indicators:
+            # Simple logic: if buy now indicators are present, product is available
+            if has_buy_indicators:
                 return True, "Buy/Add to cart options available"
             else:
                 return False, "No buy options found"

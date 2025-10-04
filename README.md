@@ -8,7 +8,7 @@ A configurable web scraper that handles dynamically loaded content from various 
 - **Automatic Fallback**: Falls back to basic HTTP scraping if browser automation fails
 - **Robust Error Handling**: Gracefully handles various error conditions
 - **Multiple Product Selectors**: Tries various CSS selectors to find products
-- **Enhanced Product Availability & Price Detection**: Extracts price information and uses multiple indicators (buy buttons, stock status text, quantity selector state) for accurate availability detection
+- **Product Availability & Price Detection**: Extracts price information and uses buy button indicators ('Buy Now', 'Add to Cart', etc.) for availability detection
 - **Smart URL Processing**: Handles both absolute and relative product URLs
 
 ## Requirements
@@ -47,7 +47,7 @@ The scraper will:
 2. Navigate to the configured store page
 3. Wait for products to load dynamically (up to 30 seconds)
 4. Extract product information (title, price, image, URL)
-5. Check each product URL for availability and price (enhanced detection including quantity selector state, stock status text, and buy options)
+5. Check each product URL for availability and price (detection based on buy options like 'Buy Now', 'Add to Cart')
 6. Display only available products and save results to JSON file
 
 ## How It Works
