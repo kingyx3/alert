@@ -3,7 +3,7 @@ name: Scraper
 "on":
   schedule:
     # Run every hour at minute 0 UTC (adjust as needed)
-    - cron: '*/5 * * * *'
+    - cron: '* * * * *'
   workflow_dispatch: # Allow manual triggering
     inputs:
       scraping_url:
