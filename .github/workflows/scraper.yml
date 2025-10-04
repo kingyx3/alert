@@ -33,6 +33,6 @@ jobs:
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-        SCRAPING_URL: ${{ vars.SCRAPING_URL || inputs.scraping_url }}
+        SCRAPING_URL: ${{ inputs.scraping_url || vars.SCRAPING_URL }}
       run: |
         python scraper.py
