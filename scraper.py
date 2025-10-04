@@ -251,7 +251,7 @@ class BrowserScraper:
             page_source = self.driver.page_source.lower()
             
             # Check for positive availability indicators (buy now type buttons)
-            buy_now_indicators = ['buy now', 'add to cart', 'purchase', 'order now', 'checkout']
+            buy_now_indicators = ['buy now']
             has_buy_indicators = any(indicator in page_source for indicator in buy_now_indicators)
             
             # Simple logic: if buy now indicators are present, product is available
