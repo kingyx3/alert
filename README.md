@@ -52,40 +52,31 @@ This scraper:
 
 ## Notification Features
 
-The scraper now includes integrated Firebase and Telegram notification capabilities:
+The scraper now includes integrated Telegram channel notification capabilities:
 
 ### Features
-- **Firebase Integration**: Fetches Telegram chat IDs from Firebase Realtime Database
-- **Telegram Bot**: Sends formatted product notifications to multiple chats
+- **Telegram Channel**: Sends formatted product notifications to a configured Telegram channel
 - **Text Formatting**: Converts scraping results into user-friendly messages with emojis
 - **Error Handling**: Gracefully handles missing credentials and failed notifications
-- **Batch Messaging**: Supports sending to multiple chat IDs simultaneously
+- **Long Message Support**: Automatically splits messages exceeding Telegram's character limit
 
 ### Setup for Notifications
 
-1. **Firebase Setup**:
-   ```bash
-   # Set environment variables
-   export FIREBASE_SERVICE_ACCOUNT_PATH="/path/to/serviceAccount.json"
-   export FIREBASE_DATABASE_URL="https://your-project-id-default-rtdb.firebaseio.com/"
-   ```
-
-2. **Telegram Bot Setup**:
+1. **Telegram Bot Setup**:
    ```bash
    # Set bot token from @BotFather
    export TELEGRAM_BOT_TOKEN="your_telegram_bot_token_here"
    ```
 
-3. **Firebase Database Structure**:
-   ```json
-   {
-     "telegram_chat_ids": [
-       "123456789",
-       "987654321",
-       "-555666777"
-     ]
-   }
+2. **Telegram Channel Setup**:
+   ```bash
+   # Set channel ID (negative number for channels)
+   export TELEGRAM_CHANNEL_ID="-1001234567890"
    ```
+
+3. **For GitHub Actions (recommended)**:
+   - Store `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHANNEL_ID` as repository secrets
+   - The scraper will automatically use these when running in GitHub Actions
 
 ### Demo Scripts
 - `demo_notification.py` - Test notification service with mock data

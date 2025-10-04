@@ -2,21 +2,13 @@
 
 """
 Notification Service Module
-Handles Firebase RTDB integration and Telegram bot messaging
+Handles Telegram bot messaging to a specified channel
 """
 
 import os
 import json
 from datetime import datetime
 from typing import List, Dict, Any
-
-try:
-    import firebase_admin
-    from firebase_admin import credentials, db
-    FIREBASE_AVAILABLE = True
-except ImportError:
-    FIREBASE_AVAILABLE = False
-    print("Firebase Admin SDK not available. Please install firebase-admin package.")
 
 try:
     import telebot
@@ -27,113 +19,46 @@ except ImportError:
 
 
 class NotificationService:
-    """Service class for handling Firebase RTDB and Telegram notifications"""
+    """Service class for handling Telegram channel notifications"""
     
-    def __init__(self, firebase_service_account_path=None, firebase_database_url=None, telegram_bot_token=None):
+    def __init__(self, telegram_bot_token=None, telegram_channel_id=None):
         """
         Initialize the notification service
         
         Args:
-            firebase_service_account_path (str): Path to Firebase service account JSON file
-            firebase_database_url (str): Firebase Realtime Database URL
             telegram_bot_token (str): Telegram Bot API token
+            telegram_channel_id (str): Telegram Channel ID to send notifications to
         """
-        self.firebase_app = None
         self.telegram_bot = None
-        self.firebase_initialized = False
+        self.telegram_channel_id = None
         self.telegram_initialized = False
-        
-        # Try to initialize Firebase
-        if FIREBASE_AVAILABLE:
-            self._init_firebase(firebase_service_account_path, firebase_database_url)
         
         # Try to initialize Telegram
         if TELEGRAM_AVAILABLE:
-            self._init_telegram(telegram_bot_token)
+            self._init_telegram(telegram_bot_token, telegram_channel_id)
     
-    def _init_firebase(self, service_account_path=None, database_url=None):
-        """Initialize Firebase Admin SDK"""
-        try:
-            # Use environment variables as fallback
-            service_account_path = service_account_path or os.getenv('FIREBASE_SERVICE_ACCOUNT_PATH')
-            database_url = database_url or os.getenv('FIREBASE_DATABASE_URL')
-            
-            if not service_account_path or not database_url:
-                print(f"[{datetime.now()}] Firebase credentials not provided. Set FIREBASE_SERVICE_ACCOUNT_PATH and FIREBASE_DATABASE_URL environment variables.")
-                return
-            
-            if not os.path.exists(service_account_path):
-                print(f"[{datetime.now()}] Firebase service account file not found: {service_account_path}")
-                return
-            
-            # Initialize Firebase app if not already initialized
-            if not firebase_admin._apps:
-                cred = credentials.Certificate(service_account_path)
-                self.firebase_app = firebase_admin.initialize_app(cred, {
-                    'databaseURL': database_url
-                })
-            else:
-                self.firebase_app = firebase_admin.get_app()
-            
-            self.firebase_initialized = True
-            print(f"[{datetime.now()}] Firebase initialized successfully")
-            
-        except Exception as e:
-            print(f"[{datetime.now()}] Error initializing Firebase: {str(e)}")
-    
-    def _init_telegram(self, bot_token=None):
+    def _init_telegram(self, bot_token=None, channel_id=None):
         """Initialize Telegram Bot"""
         try:
             bot_token = bot_token or os.getenv('TELEGRAM_BOT_TOKEN')
+            channel_id = channel_id or os.getenv('TELEGRAM_CHANNEL_ID')
             
             if not bot_token:
                 print(f"[{datetime.now()}] Telegram bot token not provided. Set TELEGRAM_BOT_TOKEN environment variable.")
                 return
+                
+            if not channel_id:
+                print(f"[{datetime.now()}] Telegram channel ID not provided. Set TELEGRAM_CHANNEL_ID environment variable.")
+                return
             
             self.telegram_bot = telebot.TeleBot(bot_token)
+            self.telegram_channel_id = channel_id
             self.telegram_initialized = True
-            print(f"[{datetime.now()}] Telegram bot initialized successfully")
+            print(f"[{datetime.now()}] Telegram bot initialized successfully for channel: {channel_id}")
             
         except Exception as e:
             print(f"[{datetime.now()}] Error initializing Telegram bot: {str(e)}")
-    
-    def get_chat_ids_from_firebase(self, path='/telegram_chat_ids') -> List[str]:
-        """
-        Fetch list of Telegram chat IDs from Firebase RTDB
-        
-        Args:
-            path (str): Path in Firebase RTDB where chat IDs are stored
-            
-        Returns:
-            List[str]: List of chat IDs
-        """
-        if not self.firebase_initialized:
-            print(f"[{datetime.now()}] Firebase not initialized. Cannot fetch chat IDs.")
-            return []
-        
-        try:
-            ref = db.reference(path)
-            data = ref.get()
-            
-            if data is None:
-                print(f"[{datetime.now()}] No chat IDs found at path: {path}")
-                return []
-            
-            # Handle different data structures
-            chat_ids = []
-            if isinstance(data, list):
-                chat_ids = [str(chat_id) for chat_id in data if chat_id]
-            elif isinstance(data, dict):
-                chat_ids = [str(chat_id) for chat_id in data.values() if chat_id]
-            else:
-                chat_ids = [str(data)]
-            
-            print(f"[{datetime.now()}] Retrieved {len(chat_ids)} chat IDs from Firebase")
-            return chat_ids
-            
-        except Exception as e:
-            print(f"[{datetime.now()}] Error fetching chat IDs from Firebase: {str(e)}")
-            return []
+
     
     def format_products_text(self, products: List[Dict[str, Any]]) -> str:
         """
@@ -170,82 +95,67 @@ class NotificationService:
         
         return header + "\n".join(product_lines) + footer
     
-    def send_to_telegram_chats(self, message: str, chat_ids: List[str]) -> Dict[str, bool]:
+    def send_to_telegram_channel(self, message: str) -> bool:
         """
-        Send message to multiple Telegram chats
+        Send message to the configured Telegram channel
         
         Args:
             message (str): Message to send
-            chat_ids (List[str]): List of chat IDs to send to
             
         Returns:
-            Dict[str, bool]: Dictionary mapping chat_id to success status
+            bool: True if message was sent successfully
         """
         if not self.telegram_initialized:
             print(f"[{datetime.now()}] Telegram not initialized. Cannot send messages.")
-            return {}
+            return False
         
-        if not chat_ids:
-            print(f"[{datetime.now()}] No chat IDs provided.")
-            return {}
-        
-        results = {}
-        
-        for chat_id in chat_ids:
-            try:
-                # Split long messages if needed (Telegram has a 4096 character limit)
-                if len(message) > 4000:
-                    # Split message into chunks
-                    chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
-                    for i, chunk in enumerate(chunks):
-                        if i == 0:
-                            self.telegram_bot.send_message(chat_id, chunk)
-                        else:
-                            self.telegram_bot.send_message(chat_id, f"...continued\n{chunk}")
-                else:
-                    self.telegram_bot.send_message(chat_id, message)
-                
-                results[chat_id] = True
-                print(f"[{datetime.now()}] Successfully sent message to chat ID: {chat_id}")
-                
-            except Exception as e:
-                results[chat_id] = False
-                print(f"[{datetime.now()}] Failed to send message to chat ID {chat_id}: {str(e)}")
-        
-        return results
+        try:
+            # Split long messages if needed (Telegram has a 4096 character limit)
+            if len(message) > 4000:
+                # Split message into chunks
+                chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
+                for i, chunk in enumerate(chunks):
+                    if i == 0:
+                        self.telegram_bot.send_message(self.telegram_channel_id, chunk)
+                    else:
+                        self.telegram_bot.send_message(self.telegram_channel_id, f"...continued\n{chunk}")
+            else:
+                self.telegram_bot.send_message(self.telegram_channel_id, message)
+            
+            print(f"[{datetime.now()}] Successfully sent message to channel: {self.telegram_channel_id}")
+            return True
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Failed to send message to channel {self.telegram_channel_id}: {str(e)}")
+            return False
     
-    def notify_products(self, products: List[Dict[str, Any]], chat_ids_path='/telegram_chat_ids') -> bool:
+    def notify_products(self, products: List[Dict[str, Any]]) -> bool:
         """
-        Complete notification workflow: fetch chat IDs, format message, and send
+        Complete notification workflow: format message and send to channel
         
         Args:
             products (List[Dict]): List of scraped products
-            chat_ids_path (str): Firebase path for chat IDs
             
         Returns:
-            bool: True if at least one message was sent successfully
+            bool: True if message was sent successfully
         """
         try:
-            # Get chat IDs from Firebase
-            chat_ids = self.get_chat_ids_from_firebase(chat_ids_path)
-            
-            if not chat_ids:
-                print(f"[{datetime.now()}] No chat IDs available for notification.")
+            if not self.telegram_initialized:
+                print(f"[{datetime.now()}] Telegram not initialized. Cannot send notification.")
                 return False
             
             # Format products into text message
             message = self.format_products_text(products)
             
-            # Send to all chat IDs
-            results = self.send_to_telegram_chats(message, chat_ids)
+            # Send to configured channel
+            success = self.send_to_telegram_channel(message)
             
-            # Check if at least one message was sent successfully
-            success_count = sum(1 for success in results.values() if success)
-            total_chats = len(results)
+            if success:
+                print(f"[{datetime.now()}] Product notification sent successfully to channel")
+            else:
+                print(f"[{datetime.now()}] Failed to send product notification")
             
-            print(f"[{datetime.now()}] Notification summary: {success_count}/{total_chats} messages sent successfully")
-            
-            return success_count > 0
+            return success
             
         except Exception as e:
             print(f"[{datetime.now()}] Error in notification workflow: {str(e)}")
