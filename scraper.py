@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import os
-import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import json
@@ -36,7 +35,8 @@ class BrowserScraper:
     def setup_driver(self):
         """Setup Chrome driver with appropriate options"""
         if not SELENIUM_AVAILABLE:
-            raise ImportError("Selenium is not available")
+            print(f"[{datetime.now()}] Selenium is not installed/available.")
+            return False
         
         chrome_options = Options()
         chrome_options.add_argument('--headless')  # Run in headless mode
@@ -225,15 +225,13 @@ class BrowserScraper:
             print(f"URL: {self.base_url}")
 
             if not SELENIUM_AVAILABLE:
-                print(f"[{datetime.now()}] Selenium not available, falling back to basic scraper...")
-                fallback_scraper = Scraper(self.base_url)
-                return fallback_scraper.scrape_products()
+                print(f"[{datetime.now()}] Selenium not available — cannot run browser scraper.")
+                return []
 
             # Setup browser driver
             if not self.setup_driver():
-                print(f"[{datetime.now()}] Failed to setup browser, falling back to basic scraper...")
-                fallback_scraper = Scraper(self.base_url)
-                return fallback_scraper.scrape_products()
+                print(f"[{datetime.now()}] Failed to setup browser driver — aborting browser scrape.")
+                return []
 
             # Navigate to the page
             print(f"[{datetime.now()}] Navigating to the page...")
@@ -292,9 +290,7 @@ class BrowserScraper:
 
         except Exception as e:
             print(f"[{datetime.now()}] Browser scraper error: {str(e)}")
-            print(f"[{datetime.now()}] Falling back to basic scraper...")
-            fallback_scraper = Scraper(self.base_url)
-            return fallback_scraper.scrape_products()
+            return []
         
         finally:
             if self.driver:
@@ -355,269 +351,11 @@ class BrowserScraper:
             print(f"Total products checked: {total_count}")
         print(f"{'='*80}\n")
 
-class Scraper:
-    def __init__(self, base_url=None):
-        # Use provided URL, environment variable, or default fallback
-        if base_url:
-            self.base_url = base_url
-        else:
-            self.base_url = os.getenv(
-                'SCRAPING_URL',
-                "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.68ae5edfACSkfR&q=All-Products&shop_category_ids=762252&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
-            )
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
-        }
-
-    def check_product_availability(self, product_url):
-        """Check if a product page contains 'Buy Now' button text"""
-        try:
-            if not product_url or not product_url.startswith('http'):
-                # Convert relative URLs to absolute URLs
-                if product_url.startswith('//'):
-                    product_url = 'https:' + product_url
-                elif product_url.startswith('/'):
-                    product_url = 'https://www.lazada.sg' + product_url
-                else:
-                    return False, "Invalid URL"
-            
-            print(f"[{datetime.now()}] Checking availability for: {product_url}")
-            response = requests.get(product_url, headers=self.headers, timeout=30)
-            response.raise_for_status()
-            
-            # Parse the product page content
-            soup = BeautifulSoup(response.content, 'html.parser')
-            page_text = soup.get_text().lower()
-            
-            # Check for "Buy Now" button text
-            has_buy_now = 'buy now' in page_text
-            
-            if has_buy_now:
-                return True, "Available - Buy Now button found"
-            else:
-                return False, "Not available - Buy Now button not found"
-                
-        except Exception as e:
-            print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
-            return False, f"Error: {str(e)}"
-
-    def scrape_products(self):
-        """Scrape products from the configured store"""
-        try:
-            print(f"[{datetime.now()}] Starting scrape of store...")
-            print(f"URL: {self.base_url}")
-
-            # Make request to the store page
-            response = requests.get(self.base_url, headers=self.headers, timeout=30)
-            response.raise_for_status()
-
-            print(f"[{datetime.now()}] Successfully retrieved page (Status: {response.status_code})")
-
-            # Parse the HTML content
-            soup = BeautifulSoup(response.content, 'html.parser')
-
-            # Find product containers - Lazada typically uses specific classes for product listings
-            products = []
-
-            # Look for common Lazada product selectors
-            product_selectors = [
-                '[data-qa-locator="product-item"]',
-                '.product-item',
-                '.item-box',
-                '.c2prKC',  # Common Lazada product class
-                '.product'
-            ]
-
-            product_elements = []
-            for selector in product_selectors:
-                elements = soup.select(selector)
-                if elements:
-                    product_elements = elements
-                    print(f"[{datetime.now()}] Found {len(elements)} products using selector: {selector}")
-                    break
-
-            if not product_elements:
-                # If no specific selectors work, try to find products by looking for price elements
-                price_elements = soup.find_all(['span', 'div'], class_=lambda x: x and ('price' in x.lower() if isinstance(x, str) else False))
-                if price_elements:
-                    print(f"[{datetime.now()}] Found {len(price_elements)} price elements, attempting to extract products")
-                    product_elements = [elem.find_parent() for elem in price_elements[:20]]  # Limit to first 20
-
-            # Extract product information
-            for idx, element in enumerate(product_elements):
-                if not element:
-                    continue
-
-                try:
-                    product = self.extract_product_info(element)
-                    if product:
-                        products.append(product)
-
-                except Exception as e:
-                    print(f"[{datetime.now()}] Error extracting product {idx}: {str(e)}")
-                    continue
-
-            # If we still don't have products, let's examine the page structure
-            if not products:
-                print(f"[{datetime.now()}] No products found with standard selectors. Analyzing page structure...")
-                self.analyze_page_structure(soup)
-
-                # Try a more generic approach
-                links = soup.find_all('a', href=True)
-                product_links = [link for link in links if '/products/' in link.get('href', '') or 'item' in link.get('href', '').lower()]
-
-                for link in product_links:  # Limit to first 10
-                    print('link', link)
-                    try:
-                        product = {
-                            'title': link.get_text(strip=True) or 'No title available',
-                            'url': link.get('href'),
-                            'price': 'Price not available',
-                            'image': '',
-                            'scraped_at': datetime.now().isoformat()
-                        }
-                        if product['title'] and len(product['title']) > 3:
-                            products.append(product)
-                    except Exception as e:
-                        continue
-
-            # Check availability for each product
-            available_products = []
-            available_count = 0
-            
-            print(f"[{datetime.now()}] Checking availability for {len(products)} products...")
-            for product in products:
-                if product.get('url'):
-                    is_available, status = self.check_product_availability(product['url'])
-                    product['availability_status'] = status
-                    product['is_available'] = is_available
-                    
-                    if is_available:
-                        available_products.append(product)
-                        available_count += 1
-                else:
-                    product['availability_status'] = "No URL available"
-                    product['is_available'] = False
-
-            print(f"[{datetime.now()}] Scraping completed. Found {len(products)} products, {available_count} available.")
-
-            # Display results
-            self.display_results(available_products, available_count, len(products))
-
-            return available_products
-
-        except requests.RequestException as e:
-            print(f"[{datetime.now()}] Request error: {str(e)}")
-            return []
-        except Exception as e:
-            print(f"[{datetime.now()}] Unexpected error: {str(e)}")
-            return []
-
-    def extract_product_info(self, element):
-        """Extract product information from a product element"""
-        product = {}
-
-        # Extract title
-        title_selectors = ['h2', 'h3', '.title', '[data-qa-locator="product-name"]', 'a']
-        title = ""
-        for selector in title_selectors:
-            title_elem = element.select_one(selector)
-            if title_elem and title_elem.get_text(strip=True):
-                title = title_elem.get_text(strip=True)
-                break
-
-        # Extract price
-        price_selectors = ['.price', '[data-qa-locator="product-price"]', '.current-price', '.sale-price']
-        price = ""
-        for selector in price_selectors:
-            price_elem = element.select_one(selector)
-            if price_elem and price_elem.get_text(strip=True):
-                price = price_elem.get_text(strip=True)
-                break
-
-        # Extract image
-        img_elem = element.select_one('img')
-        image_url = ""
-        if img_elem:
-            image_url = img_elem.get('src') or img_elem.get('data-src') or ""
-
-        # Extract product URL
-        link_elem = element.select_one('a')
-        product_url = ""
-        if link_elem:
-            product_url = link_elem.get('href', "")
-
-        if title:
-            product = {
-                'title': title or 'No title available',
-                'price': price or 'Price not available',
-                'image': image_url,
-                'url': product_url,
-                'scraped_at': datetime.now().isoformat()
-            }
-            return product
-
-        return None
-
-    def analyze_page_structure(self, soup):
-        """Analyze the page structure to understand the layout"""
-        print(f"[{datetime.now()}] Page title: {soup.title.string if soup.title else 'No title'}")
-
-        # Count common elements
-        divs = len(soup.find_all('div'))
-        spans = len(soup.find_all('span'))
-        link_texts = soup.find_all('a')
-        links = len(link_texts)
-        images = len(soup.find_all('img'))
-
-        for link in link_texts:
-            print(link)
-
-        print(f"[{datetime.now()}] Page structure - Divs: {divs}, Spans: {spans}, Links: {links}, Images: {images}")
-
-        # Look for potential product containers
-        potential_containers = soup.find_all('div', class_=lambda x: x and any(keyword in x.lower() for keyword in ['product', 'item', 'card', 'box']))
-        print(f"[{datetime.now()}] Found {len(potential_containers)} potential product containers")
-
-    def display_results(self, products, available_count=None, total_count=None):
-        """Display the scraped products in a formatted way"""
-        print(f"\n{'='*80}")
-        print(f"STORE SCRAPING RESULTS - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"{'='*80}")
-
-        if available_count is not None and total_count is not None:
-            print(f"Available products (with 'Buy Now' button): {available_count}/{total_count}")
-            print(f"{'='*80}")
-
-        if not products:
-            print("No available products found.")
-            return
-
-        for idx, product in enumerate(products, 1):
-            print(f"\n{idx}. {product['title']}")
-            if product['url']:
-                print(f"   URL: {product['url']}")
-            if product.get('availability_status'):
-                print(f"   Status: {product['availability_status']}")
-            
-
-        print(f"\n{'='*80}")
-        print(f"Available products listed: {len(products)}")
-        if available_count is not None and total_count is not None:
-            print(f"Total products checked: {total_count}")
-        print(f"{'='*80}\n")
-
 def main():
     """Main function to run the scraper"""
     print(f"[{datetime.now()}] Scraper starting...")
 
-    # Try browser scraper first for dynamic content handling
+    # Browser-only scraper
     browser_scraper = BrowserScraper()
     available_products = browser_scraper.scrape_products()
 
