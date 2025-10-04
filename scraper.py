@@ -171,7 +171,7 @@ class BrowserScraper:
         return None
 
     def check_product_availability(self, product_url):
-        """Check if a product page contains 'Buy Now' button text"""
+        """Check product availability and extract price from individual product page"""
         try:
             if not product_url or not product_url.startswith('http'):
                 # Convert relative URLs to absolute URLs
@@ -180,27 +180,143 @@ class BrowserScraper:
                 elif product_url.startswith('/'):
                     product_url = 'https://www.lazada.sg' + product_url
                 else:
-                    return False, "Invalid URL"
+                    return False, "Invalid URL", None
             
-            print(f"[{datetime.now()}] Checking availability for: {product_url}")
+            print(f"[{datetime.now()}] Checking availability and price for: {product_url}")
             self.driver.get(product_url)
-            time.sleep(2)  # Wait for page to load
+            time.sleep(3)  # Wait for page to load and JS to execute
             
-            # Get the page source and check for specific text
-            page_source = self.driver.page_source.lower()
+            # Extract price information
+            price = self.extract_price_from_page()
             
-            # Check for "Buy Now" button text
-            has_buy_now = 'buy now' in page_source
+            # Check availability using multiple methods
+            is_available, availability_reason = self.check_availability_indicators()
             
-            if has_buy_now:
-                return True, "Available"
+            if is_available:
+                status = f"Available{' - ' + price if price else ''}"
+                return True, status, price
             else:
-                print("Product not available:", product_url)
-                return False, "Not available"
+                print(f"Product not available: {product_url} ({availability_reason})")
+                return False, f"Not available ({availability_reason})", price
                 
         except Exception as e:
             print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
-            return False, f"Error: {str(e)}"
+            return False, f"Error: {str(e)}", None
+
+    def extract_price_from_page(self):
+        """Extract price information from the current product page"""
+        try:
+            # Common price selectors for e-commerce sites
+            price_selectors = [
+                '[class*="price"]',
+                '[class*="Price"]', 
+                '[data-qa-locator*="price"]',
+                '[data-testid*="price"]',
+                '.price',
+                '.current-price',
+                '.sale-price',
+                '.final-price',
+                'span[class*="price"]',
+                'div[class*="price"]',
+                '.product-price',
+                '.price-current'
+            ]
+            
+            for selector in price_selectors:
+                try:
+                    price_elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for elem in price_elements:
+                        price_text = elem.text.strip()
+                        # Look for text that contains currency symbols or price patterns
+                        if price_text and any(symbol in price_text for symbol in ['$', '₹', '€', '£', '¥', 'S$', 'USD', 'SGD']):
+                            # Clean up the price text
+                            price_text = price_text.replace('\n', ' ').strip()
+                            if len(price_text) < 50:  # Reasonable price text length
+                                print(f"[{datetime.now()}] Found price: {price_text}")
+                                return price_text
+                except NoSuchElementException:
+                    continue
+                except Exception as e:
+                    continue
+            
+            print(f"[{datetime.now()}] No price found on page")
+            return None
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Error extracting price: {str(e)}")
+            return None
+
+    def check_availability_indicators(self):
+        """Check multiple indicators to determine product availability"""
+        try:
+            page_source = self.driver.page_source.lower()
+            
+            # Check for positive availability indicators
+            buy_now_indicators = ['buy now', 'add to cart', 'purchase', 'order now', 'checkout']
+            has_buy_indicators = any(indicator in page_source for indicator in buy_now_indicators)
+            
+            # Check for negative availability indicators
+            unavailable_indicators = [
+                'out of stock', 'sold out', 'not available', 'unavailable',
+                'temporarily unavailable', 'stock out', 'no stock'
+            ]
+            has_unavailable_text = any(indicator in page_source for indicator in unavailable_indicators)
+            
+            # Check quantity selector state
+            quantity_disabled = self.check_quantity_selector_disabled()
+            
+            # Determine availability based on multiple factors
+            if has_unavailable_text:
+                return False, "Out of stock text found"
+            elif quantity_disabled:
+                return False, "Quantity selector disabled"
+            elif has_buy_indicators:
+                return True, "Buy/Add to cart options available"
+            else:
+                return False, "No buy options found"
+                
+        except Exception as e:
+            print(f"[{datetime.now()}] Error checking availability indicators: {str(e)}")
+            return False, f"Error checking indicators: {str(e)}"
+
+    def check_quantity_selector_disabled(self):
+        """Check if quantity number picker/selector is disabled"""
+        try:
+            # Common selectors for quantity inputs
+            quantity_selectors = [
+                'input[type="number"]',
+                '[class*="quantity"]',
+                '[class*="qty"]',
+                '[data-qa*="quantity"]',
+                '[data-testid*="quantity"]',
+                'select[class*="quantity"]',
+                'input[name*="quantity"]',
+                'input[name*="qty"]'
+            ]
+            
+            for selector in quantity_selectors:
+                try:
+                    quantity_elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for elem in quantity_elements:
+                        # Check if element is disabled
+                        is_disabled = (
+                            elem.get_attribute('disabled') is not None or
+                            elem.get_attribute('readonly') is not None or
+                            'disabled' in elem.get_attribute('class').lower() if elem.get_attribute('class') else False
+                        )
+                        if is_disabled:
+                            print(f"[{datetime.now()}] Found disabled quantity selector")
+                            return True
+                except NoSuchElementException:
+                    continue
+                except Exception as e:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Error checking quantity selector: {str(e)}")
+            return False
 
     def scrape_products(self):
         """Scrape products using browser automation to handle dynamic content"""
@@ -250,9 +366,10 @@ class BrowserScraper:
             print(f"[{datetime.now()}] Checking availability for {len(products)} products...")
             for product in products:
                 if product.get('url'):
-                    is_available, status = self.check_product_availability(product['url'])
+                    is_available, status, price = self.check_product_availability(product['url'])
                     product['availability_status'] = status
                     product['is_available'] = is_available
+                    product['price'] = price  # Add price to product data
                     
                     if is_available:
                         available_products.append(product)
@@ -260,6 +377,7 @@ class BrowserScraper:
                 else:
                     product['availability_status'] = "No URL available"
                     product['is_available'] = False
+                    product['price'] = None
             
             print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products, {available_count} available.")
             
@@ -297,6 +415,8 @@ class BrowserScraper:
             print(f"\n{idx}. {product['title']}")
             if product['url']:
                 print(f"   URL: {product['url']}")
+            if product.get('price'):
+                print(f"   Price: {product['price']}")
             if product.get('availability_status'):
                 print(f"   Status: {product['availability_status']}")
             # if product['image']:
