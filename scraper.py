@@ -140,21 +140,6 @@ class BrowserScraper:
                 except NoSuchElementException:
                     continue
             
-            # Extract price
-            price_selectors = [
-                '.price', '[data-qa-locator="product-price"]', '.current-price', 
-                '.sale-price', '[class*="price"]', '[class*="Price"]'
-            ]
-            price = ""
-            for selector in price_selectors:
-                try:
-                    price_elem = element.find_element(By.CSS_SELECTOR, selector)
-                    price = price_elem.text.strip()
-                    if price:
-                        break
-                except NoSuchElementException:
-                    continue
-            
             # Extract image URL
             image_url = ""
             try:
@@ -171,10 +156,9 @@ class BrowserScraper:
             except NoSuchElementException:
                 pass
             
-            if title or price:  # Only return if we have some useful information
+            if title:  # Only return if we have some useful information
                 product = {
                     'title': title or 'No title available',
-                    'price': price or 'Price not available',
                     'image': image_url,
                     'url': product_url,
                     'scraped_at': datetime.now().isoformat()
@@ -209,10 +193,10 @@ class BrowserScraper:
             has_buy_now = 'buy now' in page_source
             
             if has_buy_now:
-                return True, "Available - Buy Now button found"
+                return True, "Available"
             else:
-                print("Product URL does not have Buy Now button:", product_url)
-                return False, "Not available - Buy Now button not found"
+                print("Product not available:", product_url)
+                return False, "Not available"
                 
         except Exception as e:
             print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
@@ -225,12 +209,12 @@ class BrowserScraper:
             print(f"URL: {self.base_url}")
 
             if not SELENIUM_AVAILABLE:
-                print(f"[{datetime.now()}] Selenium not available — cannot run browser scraper.")
+                print(f"[{datetime.now()}] Selenium not available.")
                 return []
 
             # Setup browser driver
             if not self.setup_driver():
-                print(f"[{datetime.now()}] Failed to setup browser driver — aborting browser scrape.")
+                print(f"[{datetime.now()}] Failed to setup browser driver.")
                 return []
 
             # Navigate to the page
@@ -257,11 +241,7 @@ class BrowserScraper:
                         continue
             
             if not products:
-                print(f"[{datetime.now()}] No products found with browser scraper, analyzing page...")
-                # Get page source and analyze
-                page_source = self.driver.page_source
-                soup = BeautifulSoup(page_source, 'html.parser')
-                self.analyze_page_structure(soup)
+                print(f"[{datetime.now()}] No products found.")
             
             # Check availability for each product
             available_products = []
@@ -299,27 +279,6 @@ class BrowserScraper:
                 except:
                     pass
 
-    def analyze_page_structure(self, soup):
-        """Analyze the page structure to understand the layout"""
-        print(f"[{datetime.now()}] Page title: {soup.title.string if soup.title else 'No title'}")
-
-        # Count common elements
-        divs = len(soup.find_all('div'))
-        spans = len(soup.find_all('span'))
-        links = len(soup.find_all('a'))
-        images = len(soup.find_all('img'))
-
-        print(f"[{datetime.now()}] Page structure - Divs: {divs}, Spans: {spans}, Links: {links}, Images: {images}")
-
-        # Look for potential product containers
-        potential_containers = soup.find_all('div', class_=lambda x: x and any(keyword in x.lower() for keyword in ['product', 'item', 'card', 'box']))
-        print(f"[{datetime.now()}] Found {len(potential_containers)} potential product containers")
-        
-        # Look for script tags that might load products
-        scripts = soup.find_all('script')
-        js_scripts = [s for s in scripts if s.string and ('product' in s.string.lower() or 'item' in s.string.lower())]
-        print(f"[{datetime.now()}] Found {len(js_scripts)} JavaScript blocks that might load products")
-
     def display_results(self, products, available_count=None, total_count=None):
         """Display the scraped products in a formatted way"""
         print(f"\n{'='*80}")
@@ -327,7 +286,7 @@ class BrowserScraper:
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:
-            print(f"Available products (with 'Buy Now' button): {available_count}/{total_count}")
+            print(f"Available products: {available_count}/{total_count}")
             print(f"{'='*80}")
 
         if not products:
@@ -336,14 +295,13 @@ class BrowserScraper:
 
         for idx, product in enumerate(products, 1):
             print(f"\n{idx}. {product['title']}")
-            print(f"   Price: {product['price']}")
             if product['url']:
                 print(f"   URL: {product['url']}")
             if product.get('availability_status'):
                 print(f"   Status: {product['availability_status']}")
-            if product['image']:
-                print(f"   Image: {product['image']}")
-            print(f"   Scraped: {product['scraped_at']}")
+            # if product['image']:
+            #     print(f"   Image: {product['image']}")
+            # print(f"   Scraped: {product['scraped_at']}")
 
         print(f"\n{'='*80}")
         print(f"Available products listed: {len(products)}")

@@ -79,21 +79,18 @@ class NotificationService:
         product_lines = []
         for idx, product in enumerate(products, 1):
             title = product.get('title', 'Unknown Product')
-            price = product.get('price', 'Price not available')
             url = product.get('url', '')
             status = product.get('availability_status', 'Status unknown')
             
             product_line = f"{idx}. 🎯 {title}\n"
-            product_line += f"   💰 {price}\n"
-            if url:
-                product_line += f"   🔗 {url}\n"
+            product_line += f"   🔗 {url}\n"
             product_line += f"   ✅ {status}\n"
             
             product_lines.append(product_line)
         
-        footer = f"\n🤖 Automated scraping completed at {datetime.now().strftime('%H:%M:%S')}"
+        # footer = f"\n🤖 Automated scraping completed at {datetime.now().strftime('%H:%M:%S')}"
         
-        return header + "\n".join(product_lines) + footer
+        return header + "\n".join(product_lines) # + footer
     
     def send_to_telegram_channel(self, message: str) -> bool:
         """
