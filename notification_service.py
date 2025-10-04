@@ -73,7 +73,7 @@ class NotificationService:
         if not products:
             return "🚫 No available products found at this time."
         
-        header = f"🛒 Store Alert - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        header = f"🛒 Store Alert - {(datetime.now()+timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')}\n"
         header += f"📦 Found {len(products)} available products:\n\n"
         
         product_lines = []
@@ -84,7 +84,7 @@ class NotificationService:
             
             product_line = f"{idx}. 🎯 {title}\n"
             product_line += f"   🔗 {url}\n"
-            product_line += f"   ✅ {status}\n"
+            # product_line += f"   ✅ {status}\n"
             
             product_lines.append(product_line)
         
