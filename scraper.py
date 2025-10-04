@@ -2,7 +2,7 @@
 
 import os
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import time
 
