@@ -397,11 +397,11 @@ class BrowserScraper:
             return
 
         for idx, product in enumerate(products, 1):
-            print(f"\n{idx}. {product['title']}")
+            print(f"\n{idx}. {product['title']} ({product['price']})")
             if product['url']:
                 print(f"   URL: {product['url']}")
-            if product.get('price'):
-                print(f"   Price: {product['price']}")
+            # if product.get('price'):
+            #     print(f"   Price: {product['price']}")
             if product.get('availability_status'):
                 print(f"   Status: {product['availability_status']}")
             # if product['image']:
