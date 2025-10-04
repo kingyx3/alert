@@ -288,19 +288,43 @@ class BrowserScraper:
             
             # Check 3: Look for common error indicators that suggest page didn't load properly
             page_lower = page_source.lower()
-            error_indicators = [
+            
+            # More specific error indicators that are less likely to appear in normal content
+            critical_error_indicators = [
                 'page not found', '404 error', 'server error', '500 error',
-                'network error', 'connection failed', 'timeout', 
+                'network error', 'connection failed', 
                 'access denied', 'forbidden', 'not available in your region',
-                'blocked', 'captcha', 'bot detection', 'unusual traffic',
-                'temporarily unavailable', 'maintenance', 'under maintenance',
-                'error occurred', 'something went wrong', 'try again later',
+                'blocked', 'captcha required', 'bot detection', 'unusual traffic detected',
+                'temporarily unavailable', 'site maintenance', 'under maintenance',
                 'internal server error', 'bad gateway', 'service unavailable'
             ]
             
-            if any(indicator in page_lower for indicator in error_indicators):
-                print(f"[{datetime.now()}] Page validation failed: Error page detected")
+            # Check for critical errors first
+            found_critical_errors = [indicator for indicator in critical_error_indicators if indicator in page_lower]
+            if found_critical_errors:
+                print(f"[{datetime.now()}] Page validation failed: Error page detected - {found_critical_errors}")
                 return False
+            
+            # Additional context-aware checks for more ambiguous phrases
+            # Only fail for these if they appear in likely error contexts (titles, headers, prominent messages)
+            page_title = self.driver.title.lower() if self.driver.title else ""
+            
+            # Check if common error phrases appear in page title or in isolation (likely error pages)
+            ambiguous_error_phrases = ['error occurred', 'something went wrong', 'try again later']
+            for phrase in ambiguous_error_phrases:
+                if phrase in page_title:
+                    print(f"[{datetime.now()}] Page validation failed: Error phrase in title - '{phrase}'")
+                    return False
+                # Check if the phrase appears as a standalone message (typical of error pages)
+                # Look for the phrase surrounded by common error page markup
+                error_contexts = [
+                    f'<h1>{phrase}</h1>', f'<h2>{phrase}</h2>', f'<h3>{phrase}</h3>',
+                    f'<div class="error">{phrase}', f'<div class="message">{phrase}',
+                    f'<p class="error">{phrase}', f'<span class="error">{phrase}'
+                ]
+                if any(context in page_lower for context in error_contexts):
+                    print(f"[{datetime.now()}] Page validation failed: Error message in error context - '{phrase}'")
+                    return False
             
             # Check 4: Verify the page looks like a product page (has typical e-commerce elements)
             # Expanded indicators to be more inclusive for different page formats and languages
