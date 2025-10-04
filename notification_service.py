@@ -81,8 +81,11 @@ class NotificationService:
             title = product.get('title', 'Unknown Product')
             url = product.get('url', '')
             status = product.get('availability_status', 'Status unknown')
+            price = product.get('price', '')
             
             product_line = f"{idx}. 🎯 {title}\n"
+            if price:
+                product_line += f"   💰 {price}\n"
             product_line += f"   🔗 {url}\n"
             # product_line += f"   ✅ {status}\n"
             
