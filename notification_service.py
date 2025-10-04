@@ -73,7 +73,7 @@ class NotificationService:
         if not products:
             return "🚫 No available products found at this time."
         
-        header = f"🎮 Pokemon Store Alert - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        header = f"🛒 Store Alert - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         header += f"📦 Found {len(products)} available products:\n\n"
         
         product_lines = []

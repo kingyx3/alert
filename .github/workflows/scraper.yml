@@ -5,6 +5,11 @@ on:
     # Run every hour at minute 0 UTC (adjust as needed)
     - cron: '*/5 * * * *'
   workflow_dispatch: # Allow manual triggering
+    inputs:
+      scraping_url:
+        description: 'URL to scrape (overrides SCRAPING_URL environment variable)'
+        required: false
+        type: string
 
 jobs:
   scrape:
@@ -28,5 +33,6 @@ jobs:
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        SCRAPING_URL: ${{ vars.SCRAPING_URL || inputs.scraping_url }}
       run: |
         python scraper.py

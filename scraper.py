@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -21,9 +22,15 @@ except ImportError:
 
 class BrowserScraper:
     """Browser-based scraper that can handle dynamic content"""
-    def __init__(self):
-        self.base_url = "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.28e55edfSHrAL6&q=All-Products&shop_category_ids=762253&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
-        # self.base_url = "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.68ae5edfACSkfR&q=All-Products&shop_category_ids=762252&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
+    def __init__(self, base_url=None):
+        # Use provided URL, environment variable, or default fallback
+        if base_url:
+            self.base_url = base_url
+        else:
+            self.base_url = os.getenv(
+                'SCRAPING_URL',
+                "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.28e55edfSHrAL6&q=All-Products&shop_category_ids=762253&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
+            )
         self.driver = None
 
     def setup_driver(self):
@@ -214,18 +221,18 @@ class BrowserScraper:
     def scrape_products(self):
         """Scrape products using browser automation to handle dynamic content"""
         try:
-            print(f"[{datetime.now()}] Starting browser-based scrape of Pokemon Store...")
+            print(f"[{datetime.now()}] Starting browser-based scrape of store...")
             print(f"URL: {self.base_url}")
 
             if not SELENIUM_AVAILABLE:
                 print(f"[{datetime.now()}] Selenium not available, falling back to basic scraper...")
-                fallback_scraper = Scraper()
+                fallback_scraper = Scraper(self.base_url)
                 return fallback_scraper.scrape_products()
 
             # Setup browser driver
             if not self.setup_driver():
                 print(f"[{datetime.now()}] Failed to setup browser, falling back to basic scraper...")
-                fallback_scraper = Scraper()
+                fallback_scraper = Scraper(self.base_url)
                 return fallback_scraper.scrape_products()
 
             # Navigate to the page
@@ -286,7 +293,7 @@ class BrowserScraper:
         except Exception as e:
             print(f"[{datetime.now()}] Browser scraper error: {str(e)}")
             print(f"[{datetime.now()}] Falling back to basic scraper...")
-            fallback_scraper = Scraper()
+            fallback_scraper = Scraper(self.base_url)
             return fallback_scraper.scrape_products()
         
         finally:
@@ -320,7 +327,7 @@ class BrowserScraper:
     def display_results(self, products, available_count=None, total_count=None):
         """Display the scraped products in a formatted way"""
         print(f"\n{'='*80}")
-        print(f"POKEMON STORE SCRAPING RESULTS (BROWSER) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"STORE SCRAPING RESULTS (BROWSER) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:
@@ -349,8 +356,15 @@ class BrowserScraper:
         print(f"{'='*80}\n")
 
 class Scraper:
-    def __init__(self):
-        self.base_url = "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.68ae5edfACSkfR&q=All-Products&shop_category_ids=762252&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
+    def __init__(self, base_url=None):
+        # Use provided URL, environment variable, or default fallback
+        if base_url:
+            self.base_url = base_url
+        else:
+            self.base_url = os.getenv(
+                'SCRAPING_URL',
+                "https://www.lazada.sg/pokemon-store-online-singapore/?spm=a2o42.10453684.0.0.68ae5edfACSkfR&q=All-Products&shop_category_ids=762252&from=wangpu&sc=KVUG&search_scenario=store&src=store_sections&hideSectionHeader=true&shopId=2056827"
+            )
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -394,9 +408,9 @@ class Scraper:
             return False, f"Error: {str(e)}"
 
     def scrape_products(self):
-        """Scrape products from the Pokemon Store"""
+        """Scrape products from the configured store"""
         try:
-            print(f"[{datetime.now()}] Starting scrape of Pokemon Store...")
+            print(f"[{datetime.now()}] Starting scrape of store...")
             print(f"URL: {self.base_url}")
 
             # Make request to the store page
@@ -574,7 +588,7 @@ class Scraper:
     def display_results(self, products, available_count=None, total_count=None):
         """Display the scraped products in a formatted way"""
         print(f"\n{'='*80}")
-        print(f"POKEMON STORE SCRAPING RESULTS - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"STORE SCRAPING RESULTS - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}")
 
         if available_count is not None and total_count is not None:

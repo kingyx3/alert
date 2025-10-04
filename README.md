@@ -1,6 +1,6 @@
-# Alert - Pokemon Store Scraper
+# Alert - Configurable Web Scraper
 
-A web scraper for the Pokemon Store on Lazada that handles dynamically loaded content.
+A configurable web scraper that handles dynamically loaded content from various e-commerce stores.
 
 ## Features
 
@@ -25,13 +25,26 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Configuration
+
+Set the target URL using the `SCRAPING_URL` environment variable:
+
+```bash
+export SCRAPING_URL="https://your-target-store.com/products"
+python scraper.py
+```
+
+If no `SCRAPING_URL` is provided, it will use the default URL as fallback.
+
+### Running the Scraper
+
 ```bash
 python scraper.py
 ```
 
 The scraper will:
 1. Launch a headless Chrome browser
-2. Navigate to the Pokemon Store page
+2. Navigate to the configured store page
 3. Wait for products to load dynamically (up to 30 seconds)
 4. Extract product information (title, price, image, URL)
 5. Check each product URL for availability (filters products based on "Buy Now" button presence)
