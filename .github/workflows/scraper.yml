@@ -1,6 +1,6 @@
 name: Scraper
 
-on:
+"on":
   schedule:
     # Run every hour at minute 0 UTC (adjust as needed)
     - cron: '*/5 * * * *'
