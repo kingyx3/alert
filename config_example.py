@@ -11,7 +11,7 @@ To use the notification features:
    - Store the token in TELEGRAM_BOT_TOKEN environment variable or repo secret
 
 2. Set up Telegram Channel:
-   - Create a Telegram channel for Pokemon Store alerts
+   - Create a Telegram channel for store alerts
    - Add your bot as an administrator to the channel
    - Get the channel ID (it will be a negative number for channels, e.g. "-1001234567890")
    - Store the channel ID in TELEGRAM_CHANNEL_ID environment variable or repo secret
@@ -45,6 +45,6 @@ os.environ['TELEGRAM_CHANNEL_ID'] = '-1001234567890'  # Channel ID (negative num
 TELEGRAM_SETUP_EXAMPLE = {
     "bot_token": "1234567890:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",  # From @BotFather
     "channel_id": "-1001234567890",  # Channel ID (always negative)
-    "channel_username": "@pokemon_alerts",  # Optional: Channel username
-    "description": "Pokemon Store availability notifications"
+    "channel_username": "@store_alerts",  # Optional: Channel username
+    "description": "Store availability notifications"
 }
