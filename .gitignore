@@ -2,3 +2,6 @@ __pycache__/
 test_dynamic_page.html
 test_scraper.py
 products_*.json
+available_products_*.json
+.env
+config.py
