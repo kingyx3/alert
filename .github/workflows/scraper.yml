@@ -7,7 +7,7 @@ name: Scraper
   workflow_dispatch: # Allow manual triggering
     inputs:
       scraping_url:
-        description: 'URL to scrape (overrides SCRAPING_URL environment variable)'
+        description: 'URL to scrape'
         required: false
         type: string
 
