@@ -43,7 +43,7 @@ class BrowserScraper:
             # Initialize components that depend on driver
             self.page_validator = PageValidator(self.driver)
             self.product_extractor = ProductExtractor(self.driver)
-            self.availability_checker = AvailabilityChecker(self.driver, self.page_validator, self.product_extractor)
+            self.availability_checker = AvailabilityChecker(self.driver, self.page_validator, self.product_extractor, self.webdriver_manager)
         return success
 
     def scrape_products(self) -> List[Dict[str, Any]]:
@@ -66,6 +66,10 @@ class BrowserScraper:
             if not self.page_validator.wait_for_page_ready(self.base_url):
                 print(f"[{get_timestamp()}] Page failed to load properly")
                 return []
+
+            # Take screenshot of main product listing page
+            print(f"[{get_timestamp()}] Taking screenshot of product listing page...")
+            self.webdriver_manager.take_screenshot("product_listing_page", self.base_url)
 
             # Extract products from listing page
             print(f"[{get_timestamp()}] Waiting for products to load...")

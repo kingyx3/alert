@@ -25,10 +25,11 @@ except ImportError:
 class AvailabilityChecker:
     """Checks product availability on individual product pages."""
     
-    def __init__(self, driver, page_validator, product_extractor=None):
+    def __init__(self, driver, page_validator, product_extractor=None, webdriver_manager=None):
         self.driver = driver
         self.page_validator = page_validator
         self.product_extractor = product_extractor
+        self.webdriver_manager = webdriver_manager
     
     def check_product_availability(self, product_url: str) -> Tuple[bool, str, Optional[str]]:
         """
@@ -48,6 +49,11 @@ class AvailabilityChecker:
             if not self.page_validator.wait_for_page_ready(normalized_url):
                 print(f"[{get_timestamp()}] Page failed to load correctly for: {normalized_url}")
                 return False, "Page failed to load correctly", None
+
+            # Take screenshot of individual product page
+            if self.webdriver_manager:
+                print(f"[{get_timestamp()}] Taking screenshot of product page...")
+                self.webdriver_manager.take_screenshot("product_page", normalized_url)
 
             # Extract price and check availability
             price = self._extract_price_from_page()
