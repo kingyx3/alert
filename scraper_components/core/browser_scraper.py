@@ -41,7 +41,7 @@ class BrowserScraper:
         success = self.webdriver_manager.setup_driver()
         if success:
             # Initialize components that depend on driver
-            self.page_validator = PageValidator(self.driver)
+            self.page_validator = PageValidator(self.driver, self.webdriver_manager)
             self.product_extractor = ProductExtractor(self.driver)
             self.availability_checker = AvailabilityChecker(self.driver, self.page_validator, self.product_extractor, self.webdriver_manager)
         return success
