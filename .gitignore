@@ -5,3 +5,7 @@ products_*.json
 available_products_*.json
 .env
 config.py
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
