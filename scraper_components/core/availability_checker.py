@@ -45,15 +45,19 @@ class AvailabilityChecker:
             print(f"[{get_timestamp()}] Checking availability and price for: {normalized_url}")
             self.driver.get(normalized_url)
 
-            # Wait for page to load and validate content
-            if not self.page_validator.wait_for_page_ready(normalized_url):
-                print(f"[{get_timestamp()}] Page failed to load correctly for: {normalized_url}")
-                return False, "Page failed to load correctly", None
-
-            # Take screenshot of individual product page
+            # Take screenshot of individual product page (before validation to capture even failed pages)
             if self.webdriver_manager:
                 print(f"[{get_timestamp()}] Taking screenshot of product page...")
                 self.webdriver_manager.take_screenshot("product_page", normalized_url)
+
+            # Wait for page to load and validate content
+            if not self.page_validator.wait_for_page_ready(normalized_url):
+                print(f"[{get_timestamp()}] Page failed to load correctly for: {normalized_url}")
+                # Take additional screenshot for failed page validation with different label
+                if self.webdriver_manager:
+                    print(f"[{get_timestamp()}] Taking screenshot of failed page load...")
+                    self.webdriver_manager.take_screenshot("product_page_failed", normalized_url)
+                return False, "Page failed to load correctly", None
 
             # Extract price and check availability
             price = self._extract_price_from_page()

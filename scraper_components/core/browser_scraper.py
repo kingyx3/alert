@@ -61,15 +61,18 @@ class BrowserScraper:
             print(f"[{get_timestamp()}] Navigating to the page...")
             self.driver.get(self.base_url)
 
+            # Take screenshot of main product listing page (before validation to capture even failed pages)
+            print(f"[{get_timestamp()}] Taking screenshot of product listing page...")
+            self.webdriver_manager.take_screenshot("product_listing_page", self.base_url)
+
             # Wait for page to be ready
             print(f"[{get_timestamp()}] Waiting for page to be ready...")
             if not self.page_validator.wait_for_page_ready(self.base_url):
                 print(f"[{get_timestamp()}] Page failed to load properly")
+                # Take additional screenshot for failed page validation with different label
+                print(f"[{get_timestamp()}] Taking screenshot of failed listing page...")
+                self.webdriver_manager.take_screenshot("product_listing_page_failed", self.base_url)
                 return []
-
-            # Take screenshot of main product listing page
-            print(f"[{get_timestamp()}] Taking screenshot of product listing page...")
-            self.webdriver_manager.take_screenshot("product_listing_page", self.base_url)
 
             # Extract products from listing page
             print(f"[{get_timestamp()}] Waiting for products to load...")
