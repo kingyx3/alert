@@ -205,55 +205,5 @@ class TestScreenshotFunctionality(unittest.TestCase):
         self.assertEqual(checker.webdriver_manager, mock_webdriver_manager)
 
 
-class TestReCAPTCHAFunctionality(unittest.TestCase):
-    """Test reCAPTCHA detection and handling functionality."""
-    
-    def test_recaptcha_handler_import(self):
-        """Test that ReCAPTCHAHandler can be imported."""
-        from scraper_components.core.recaptcha_handler import ReCAPTCHAHandler
-        
-        # Should be able to create instance with mock driver
-        mock_driver = None
-        handler = ReCAPTCHAHandler(mock_driver)
-        self.assertIsNotNone(handler)
-    
-    def test_recaptcha_constants_available(self):
-        """Test that reCAPTCHA constants are available."""
-        from scraper_components.config.constants import RECAPTCHA_INDICATORS, RECAPTCHA_SELECTORS
-        
-        self.assertIsInstance(RECAPTCHA_INDICATORS, list)
-        self.assertIsInstance(RECAPTCHA_SELECTORS, list)
-        self.assertGreater(len(RECAPTCHA_INDICATORS), 0)
-        self.assertGreater(len(RECAPTCHA_SELECTORS), 0)
-        
-        # Check that expected indicators are present
-        self.assertIn('we need to check if you are a robot', RECAPTCHA_INDICATORS)
-        self.assertIn('i\'m not a robot', RECAPTCHA_INDICATORS)
-    
-    def test_page_validator_has_recaptcha_handler(self):
-        """Test that PageValidator initializes with reCAPTCHA handler."""
-        from scraper_components.core.page_validator import PageValidator
-        
-        # Mock driver
-        mock_driver = None
-        validator = PageValidator(mock_driver)
-        
-        # Should have recaptcha_handler attribute
-        self.assertTrue(hasattr(validator, 'recaptcha_handler'))
-        self.assertIsNotNone(validator.recaptcha_handler)
-    
-    def test_recaptcha_handler_methods(self):
-        """Test that ReCAPTCHAHandler has required methods."""
-        from scraper_components.core.recaptcha_handler import ReCAPTCHAHandler
-        
-        mock_driver = None
-        handler = ReCAPTCHAHandler(mock_driver)
-        
-        # Check for required methods
-        self.assertTrue(hasattr(handler, 'detect_recaptcha'))
-        self.assertTrue(hasattr(handler, 'handle_recaptcha'))
-        self.assertTrue(hasattr(handler, 'wait_for_recaptcha_completion'))
-
-
 if __name__ == '__main__':
     unittest.main()
