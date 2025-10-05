@@ -278,6 +278,40 @@ class TestScreenshotFunctionality(unittest.TestCase):
         # Verify the call was made with correct parameters
         calls = mock_webdriver_manager.take_screenshot.call_args_list
         self.assertEqual(calls[0][0][0], "product_page")  # Regular screenshot for successful load
+    
+    def test_listing_page_screenshot_on_failure(self):
+        """Test that listing page screenshots are taken even when page validation fails."""
+        from scraper_components.core.browser_scraper import BrowserScraper
+        from unittest.mock import Mock, patch
+        
+        # Create scraper with test URL
+        scraper = BrowserScraper("https://example.com")
+        
+        # Mock the webdriver manager and other components
+        mock_webdriver_manager = Mock()
+        mock_webdriver_manager.setup_driver.return_value = True
+        mock_webdriver_manager.driver = Mock()
+        
+        mock_page_validator = Mock()
+        mock_page_validator.wait_for_page_ready.return_value = False  # Simulate page load failure
+        
+        scraper.webdriver_manager = mock_webdriver_manager
+        scraper.page_validator = mock_page_validator
+        
+        # Mock the driver property to return the mock driver
+        with patch.object(BrowserScraper, 'driver', mock_webdriver_manager.driver):
+            result = scraper.scrape_products()
+        
+        # Verify empty result due to page load failure
+        self.assertEqual(result, [])
+        
+        # Verify that screenshots were taken (twice: once initially, once for failure)
+        self.assertEqual(mock_webdriver_manager.take_screenshot.call_count, 2)
+        
+        # Verify the calls were made with correct parameters
+        calls = mock_webdriver_manager.take_screenshot.call_args_list
+        self.assertEqual(calls[0][0][0], "product_listing_page")  # First call for regular screenshot
+        self.assertEqual(calls[1][0][0], "product_listing_page_failed")  # Second call for failure screenshot
 
 
 if __name__ == '__main__':
