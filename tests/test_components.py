@@ -203,6 +203,81 @@ class TestScreenshotFunctionality(unittest.TestCase):
         # Should not raise exception with webdriver_manager parameter
         checker = AvailabilityChecker(mock_driver, mock_validator, mock_extractor, mock_webdriver_manager)
         self.assertEqual(checker.webdriver_manager, mock_webdriver_manager)
+    
+    def test_screenshot_taken_on_page_load_failure(self):
+        """Test that screenshots are taken even when page validation fails."""
+        from scraper_components.core.availability_checker import AvailabilityChecker
+        from unittest.mock import Mock
+        
+        # Create mock objects
+        mock_driver = Mock()
+        mock_page_validator = Mock()
+        mock_webdriver_manager = Mock()
+        
+        # Mock page validation to fail
+        mock_page_validator.wait_for_page_ready.return_value = False
+        
+        # Create availability checker
+        checker = AvailabilityChecker(
+            driver=mock_driver,
+            page_validator=mock_page_validator, 
+            webdriver_manager=mock_webdriver_manager
+        )
+        
+        # Call check_product_availability with a test URL
+        result = checker.check_product_availability("https://example.com/product")
+        
+        # Verify that the result indicates failure
+        is_available, status, price = result
+        self.assertFalse(is_available)
+        self.assertEqual(status, "Page failed to load correctly")
+        self.assertIsNone(price)
+        
+        # Verify that screenshots were still taken (twice: once initially, once for failure)
+        self.assertEqual(mock_webdriver_manager.take_screenshot.call_count, 2)
+        
+        # Verify the calls were made with correct parameters
+        calls = mock_webdriver_manager.take_screenshot.call_args_list
+        self.assertEqual(calls[0][0][0], "product_page")  # First call for regular screenshot
+        self.assertEqual(calls[1][0][0], "product_page_failed")  # Second call for failure screenshot
+    
+    def test_screenshot_taken_on_successful_page_load(self):
+        """Test that screenshots are taken when page loads successfully."""
+        from scraper_components.core.availability_checker import AvailabilityChecker
+        from unittest.mock import Mock
+        
+        # Create mock objects
+        mock_driver = Mock()
+        mock_page_validator = Mock()
+        mock_webdriver_manager = Mock()
+        
+        # Mock page validation to succeed
+        mock_page_validator.wait_for_page_ready.return_value = True
+        
+        # Create availability checker with mock product extractor
+        checker = AvailabilityChecker(
+            driver=mock_driver,
+            page_validator=mock_page_validator, 
+            webdriver_manager=mock_webdriver_manager
+        )
+        
+        # Mock successful availability check (no buy indicators found)
+        mock_driver.page_source = "<html><body>Product not available</body></html>"
+        
+        # Call check_product_availability with a test URL
+        result = checker.check_product_availability("https://example.com/product")
+        
+        # Verify that the result processes successfully (even if not available)
+        is_available, status, price = result
+        self.assertFalse(is_available)  # No buy indicators in mock page source
+        self.assertIn("Not available", status)
+        
+        # Verify that screenshot was taken (only once, since page loaded successfully)
+        self.assertEqual(mock_webdriver_manager.take_screenshot.call_count, 1)
+        
+        # Verify the call was made with correct parameters
+        calls = mock_webdriver_manager.take_screenshot.call_args_list
+        self.assertEqual(calls[0][0][0], "product_page")  # Regular screenshot for successful load
 
 
 if __name__ == '__main__':
