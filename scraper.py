@@ -183,11 +183,10 @@ class BrowserScraper:
             
             print(f"[{datetime.now()}] Checking availability and price for: {product_url}")
             self.driver.get(product_url)
-            time.sleep(3)  # Wait for page to load and JS to execute
             
-            # Validate that the page actually loaded correctly for this URL
-            if not self.validate_page_loaded(product_url):
-                print(f"Page validation failed for: {product_url}")
+            # Wait for page to be ready and validate it loaded correctly
+            if not self.wait_for_page_ready(product_url):
+                print(f"[{datetime.now()}] Page failed to load correctly for: {product_url}")
                 return False, "Page failed to load correctly", None
             
             # Extract price information
@@ -268,6 +267,29 @@ class BrowserScraper:
         except Exception as e:
             print(f"[{datetime.now()}] Error checking availability indicators: {str(e)}")
             return False, f"Error checking indicators: {str(e)}"
+
+    def wait_for_page_ready(self, expected_url=None, timeout=10):
+        """Wait for page to be ready and validate it loaded correctly"""
+        try:
+            # Wait for the document to be ready
+            wait = WebDriverWait(self.driver, timeout)
+            wait.until(lambda driver: driver.execute_script("return document.readyState") == "complete")
+            
+            # Additional wait for any dynamic content to start loading
+            time.sleep(1)  # Brief wait for JS to start executing
+            
+            # Validate the page loaded correctly if URL is provided
+            if expected_url:
+                return self.validate_page_loaded(expected_url)
+            
+            return True
+            
+        except TimeoutException:
+            print(f"[{datetime.now()}] Timeout waiting for page to be ready")
+            return False
+        except Exception as e:
+            print(f"[{datetime.now()}] Error waiting for page ready: {str(e)}")
+            return False
 
     def validate_page_loaded(self, expected_url):
         """Validate that the current page has actually loaded correctly"""
@@ -421,8 +443,11 @@ class BrowserScraper:
             print(f"[{datetime.now()}] Navigating to the page...")
             self.driver.get(self.base_url)
             
-            # Wait a moment for initial page load
-            time.sleep(3)
+            # Wait for page to be ready
+            print(f"[{datetime.now()}] Waiting for page to be ready...")
+            if not self.wait_for_page_ready(self.base_url):
+                print(f"[{datetime.now()}] Page failed to load properly")
+                return []
             
             # Wait for products to load dynamically
             print(f"[{datetime.now()}] Waiting for products to load...")
