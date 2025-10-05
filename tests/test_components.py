@@ -181,5 +181,29 @@ class TestIssue22PageLoadingFix(unittest.TestCase):
         self.assertIn('timeout', method_sig.parameters)
 
 
+class TestScreenshotFunctionality(unittest.TestCase):
+    """Test screenshot functionality for scraper pages."""
+    
+    def test_webdriver_manager_has_screenshot_method(self):
+        """Test that WebDriverManager has screenshot functionality."""
+        from scraper_components.core.webdriver_manager import WebDriverManager
+        manager = WebDriverManager()
+        self.assertTrue(hasattr(manager, 'take_screenshot'))
+    
+    def test_availability_checker_accepts_webdriver_manager(self):
+        """Test that AvailabilityChecker can accept webdriver_manager parameter."""
+        from scraper_components.core.availability_checker import AvailabilityChecker
+        
+        # Mock objects
+        mock_driver = None
+        mock_validator = None
+        mock_extractor = None
+        mock_webdriver_manager = None
+        
+        # Should not raise exception with webdriver_manager parameter
+        checker = AvailabilityChecker(mock_driver, mock_validator, mock_extractor, mock_webdriver_manager)
+        self.assertEqual(checker.webdriver_manager, mock_webdriver_manager)
+
+
 if __name__ == '__main__':
     unittest.main()

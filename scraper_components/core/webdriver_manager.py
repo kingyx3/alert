@@ -5,6 +5,8 @@ WebDriver management component for browser automation.
 Handles Chrome driver setup, configuration, and lifecycle management.
 """
 
+import os
+from datetime import datetime
 from typing import Optional
 
 from ..config.constants import DEFAULT_WINDOW_SIZE, SYSTEM_CHROMEDRIVER_PATH
@@ -97,6 +99,47 @@ class WebDriverManager:
             print(f"[{get_timestamp()}] Failed to setup Chrome driver with webdriver manager: {str(e)}")
             return False
     
+    def take_screenshot(self, page_type: str = "page", url: str = "") -> Optional[str]:
+        """
+        Take a screenshot of the current page and save it to screenshots directory.
+        Returns the filename if successful, None otherwise.
+        """
+        if not self.driver:
+            print(f"[{get_timestamp()}] Cannot take screenshot: No driver available")
+            return None
+        
+        try:
+            # Create screenshots directory if it doesn't exist
+            screenshots_dir = "screenshots"
+            os.makedirs(screenshots_dir, exist_ok=True)
+            
+            # Generate filename with timestamp and page type
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # Include milliseconds
+            safe_page_type = page_type.replace(" ", "_").replace("/", "_")
+            
+            # Extract domain from URL for context
+            domain_part = ""
+            if url:
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    domain_part = f"_{parsed.netloc.replace('.', '_')}"
+                except:
+                    pass
+            
+            filename = f"{safe_page_type}{domain_part}_{timestamp}.png"
+            filepath = os.path.join(screenshots_dir, filename)
+            
+            # Take screenshot
+            self.driver.save_screenshot(filepath)
+            print(f"[{get_timestamp()}] Screenshot saved: {filepath}")
+            
+            return filepath
+            
+        except Exception as e:
+            print(f"[{get_timestamp()}] Failed to take screenshot: {str(e)}")
+            return None
+
     def quit_driver(self) -> None:
         """Safely quit the WebDriver."""
         if self.driver:

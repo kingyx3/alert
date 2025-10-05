@@ -47,6 +47,7 @@ scraper_components/
   - Configure Chrome options for headless scraping
   - Handle driver installation (system vs webdriver-manager)
   - Manage driver lifecycle (setup and teardown)
+  - Capture page screenshots for debugging and monitoring
 
 #### `PageValidator`
 - **Purpose**: Ensures pages load correctly and contain expected content
@@ -165,6 +166,35 @@ product_dict = product.to_dict()
 # Create from existing data
 product2 = Product.from_dict(product_dict)
 ```
+
+### Screenshot Functionality
+The scraper automatically captures screenshots of each page visited during the scraping process:
+
+```python
+from scraper_components.core.webdriver_manager import WebDriverManager
+
+# Screenshots are taken automatically during scraping
+# They are saved to the 'screenshots/' directory with timestamped filenames
+driver_manager = WebDriverManager()
+if driver_manager.setup_driver():
+    # Screenshots are captured automatically when pages are loaded
+    screenshot_path = driver_manager.take_screenshot("custom_page_type", "https://example.com")
+    driver_manager.quit_driver()
+```
+
+**Screenshot Features:**
+- Automatically captures product listing pages after they load
+- Captures individual product pages during availability checking
+- Saves screenshots with descriptive filenames including timestamps and page types
+- Screenshots are uploaded as GitHub Actions artifacts for debugging and monitoring
+- Screenshots directory is automatically created and excluded from git commits
+
+**GitHub Actions Integration:**
+The scraper workflows (`scraper.yml` and `scraper0.yml`) automatically:
+- Capture screenshots during scraping runs
+- Upload all screenshots as workflow artifacts
+- Retain screenshots for 30 days for debugging purposes
+- Upload artifacts even if the scraper encounters errors (using `if: always()`)
 
 ## Testing
 

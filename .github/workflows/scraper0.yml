@@ -33,3 +33,12 @@ jobs:
         SCRAPING_URL: ${{ inputs.scraping_url || vars.SCRAPING_URL }}
       run: |
         python scraper.py
+        
+    - name: Upload screenshots as artifacts
+      if: always()  # Upload screenshots even if scraper fails
+      uses: actions/upload-artifact@v4
+      with:
+        name: scraper-screenshots-${{ github.run_number }}
+        path: screenshots/
+        if-no-files-found: warn
+        retention-days: 30
