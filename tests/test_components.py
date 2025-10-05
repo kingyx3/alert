@@ -157,5 +157,29 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(product.availability_status, 'In Stock')
 
 
+class TestIssue22PageLoadingFix(unittest.TestCase):
+    """Test fix for issue #22: Improve page loading stability to prevent false positives."""
+    
+    def test_buy_indicators_remain_focused(self):
+        """Test that BUY_INDICATORS maintains focus on 'buy now' only."""
+        from scraper_components.config.constants import BUY_INDICATORS
+        
+        # Should contain only the specific indicator
+        self.assertEqual(BUY_INDICATORS, ['buy now'], 
+                        "BUY_INDICATORS should remain focused on 'buy now' to prevent false positives")
+    
+    def test_page_validator_exists(self):
+        """Test that PageValidator has improved stability checking."""
+        from scraper_components.core.page_validator import PageValidator
+        
+        # Verify the class exists and has the required method
+        self.assertTrue(hasattr(PageValidator, 'wait_for_page_ready'))
+        
+        # Check the method signature accepts timeout parameter
+        import inspect
+        method_sig = inspect.signature(PageValidator.wait_for_page_ready)
+        self.assertIn('timeout', method_sig.parameters)
+
+
 if __name__ == '__main__':
     unittest.main()

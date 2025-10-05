@@ -31,11 +31,32 @@ class PageValidator:
         self.driver = driver
     
     def wait_for_page_ready(self, expected_url: Optional[str] = None, timeout: int = 10) -> bool:
-        """Wait for document readyState == 'complete' and do a minimal validation."""
+        """Wait for document readyState == 'complete' and ensure content stability."""
         try:
             wait = WebDriverWait(self.driver, timeout)
             wait.until(lambda driver: driver.execute_script("return document.readyState") == "complete")
-            time.sleep(1)  # allow JS to start executing
+            
+            # Wait for content to stabilize - check that page source doesn't change
+            print(f"[{get_timestamp()}] Waiting for page content to stabilize...")
+            stable_attempts = 0
+            max_stability_checks = 3
+            stability_wait = 2  # seconds between checks
+            
+            previous_source_length = 0
+            for attempt in range(max_stability_checks):
+                time.sleep(stability_wait)
+                current_source_length = len(self.driver.page_source or "")
+                
+                if current_source_length == previous_source_length and current_source_length > 0:
+                    stable_attempts += 1
+                    if stable_attempts >= 2:  # Need 2 consecutive stable checks
+                        print(f"[{get_timestamp()}] Page content stabilized after {(attempt + 1) * stability_wait} seconds")
+                        break
+                else:
+                    stable_attempts = 0
+                    previous_source_length = current_source_length
+            else:
+                print(f"[{get_timestamp()}] Page content may not be fully stable, proceeding anyway")
             
             if expected_url:
                 return self.validate_page_loaded(expected_url)
