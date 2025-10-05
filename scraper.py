@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-
 import os
-from bs4 import BeautifulSoup
-from datetime import datetime
 import json
 import time
+from datetime import datetime
+from typing import List, Optional, Tuple, Dict, Any
 
 try:
     from selenium import webdriver
@@ -19,143 +18,283 @@ try:
 except ImportError:
     SELENIUM_AVAILABLE = False
 
+# ---------- Module-level constants (selectors / timeouts) ----------
+DEFAULT_WINDOW_SIZE = "1920,1080"
+SYSTEM_CHROMEDRIVER_PATH = "/usr/bin/chromedriver"
+
+# Common selectors for listing pages
+PRODUCT_SELECTORS = [
+    '[data-qa-locator="product-item"]',
+    '.product-item',
+    '.item-box',
+    '.c2prKC',
+    '.product',
+    '[data-testid="product-item"]',
+    '.item-card',
+    '.product-card'
+]
+
+PRICE_SELECTORS = [
+    '[class*="price"]',
+    '[class*="Price"]',
+    '[data-testid*="price"]'
+]
+
+TITLE_SELECTORS = [
+    'h2', 'h3', '.title', '[data-qa-locator="product-name"]',
+    'a[title]', '[class*="title"]', '[class*="Title"]'
+]
+
+PRICE_EXTRACT_SELECTORS = [
+    '[class*="price"]',
+    '[class*="Price"]',
+    '[data-qa-locator*="price"]',
+    '[data-testid*="price"]',
+    '.price',
+    '.current-price',
+    '.sale-price',
+    '.final-price',
+    'span[class*="price"]',
+    'div[class*="price"]',
+    '.product-price',
+    '.price-current'
+]
+
+BUY_INDICATORS = ['buy now']  # used in availability detection
+
+CRITICAL_ERROR_INDICATORS = [
+    'page not found', '404 error', 'server error', '500 error',
+    'network error', 'connection failed',
+    'access denied', 'forbidden', 'not available in your region',
+    'blocked', 'captcha required', 'bot detection', 'unusual traffic detected',
+    'temporarily unavailable', 'site maintenance', 'under maintenance',
+    'internal server error', 'bad gateway', 'service unavailable'
+]
+
+PRODUCT_PAGE_INDICATORS = [
+    'price', 'product', 'buy', 'cart', 'add to cart', 'purchase', 'order',
+    'add-to-cart', 'buy now', 'buy-now', 'quantity', 'qty', 'delivery',
+    'shipping', 'checkout', 'item', 'sku', 'stock', 'available',
+    'pdp-', 'lazada', 'item-detail', 'product-detail', 'current-price',
+    'original-price', 'sale-price', 'final-price',
+    's$', '$', '€', '£', '¥', 'usd', 'sgd', 'price_', 'currency',
+    'rating', 'review', 'star', 'seller', 'brand', 'description',
+    'specification', 'warranty', 'return', 'exchange'
+]
+
+QUANTITY_SELECTORS = [
+    'input[type="number"]',
+    '[class*="quantity"]',
+    '[class*="qty"]',
+    '[data-qa*="quantity"]',
+    '[data-testid*="quantity"]',
+    'select[class*="quantity"]',
+    'input[name*="quantity"]',
+    'input[name*="qty"]'
+]
+
+# ---------- Helper functions ----------
+def _now() -> str:
+    return datetime.now().isoformat()
+
+
+def _safe_get_attr(elem, attr: str) -> Optional[str]:
+    """Return attribute value or None safely."""
+    try:
+        return elem.get_attribute(attr)
+    except Exception:
+        return None
+
+
+# ---------- BrowserScraper class ----------
 class BrowserScraper:
-    """Browser-based scraper that can handle dynamic content"""
-    def __init__(self, base_url=None):
-        # Use provided URL, environment variable, or default fallback
+    """Browser-based scraper that can handle dynamic content."""
+
+    def __init__(self, base_url: Optional[str] = None):
         if base_url:
             self.base_url = base_url
         else:
-            self.base_url = os.getenv(
-                'SCRAPING_URL'
-            )
+            self.base_url = os.getenv('SCRAPING_URL')
         self.driver = None
 
-    def setup_driver(self):
-        """Setup Chrome driver with appropriate options"""
+    # ----------------- Driver setup -----------------
+    def setup_driver(self) -> bool:
+        """Setup Chrome driver with recommended options and return success state."""
         if not SELENIUM_AVAILABLE:
-            print(f"[{datetime.now()}] Selenium is not installed/available.")
+            print(f"[{_now()}] Selenium is not installed/available.")
             return False
-        
+
         chrome_options = Options()
-        chrome_options.add_argument('--headless')  # Run in headless mode
+        chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument(f'--window-size={DEFAULT_WINDOW_SIZE}')
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-plugins')
-        chrome_options.add_argument('--disable-images')  # Disable images for faster loading
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-        
+        chrome_options.add_argument('--disable-images')
+        chrome_options.add_argument(
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        )
+
+        # Try system chromedriver first, then webdriver-manager fallback
         try:
-            # Try to use the system chromedriver first
-            service = Service('/usr/bin/chromedriver')
+            service = Service(SYSTEM_CHROMEDRIVER_PATH)
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
             return True
         except Exception as e:
-            print(f"[{datetime.now()}] Failed to setup Chrome driver with system chromedriver: {str(e)}")
+            print(f"[{_now()}] Failed to setup Chrome driver with system chromedriver: {str(e)}")
             try:
-                # Fallback to webdriver manager if system driver fails
                 service = Service(ChromeDriverManager().install())
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
                 return True
             except Exception as e2:
-                print(f"[{datetime.now()}] Failed to setup Chrome driver with webdriver manager: {str(e2)}")
+                print(f"[{_now()}] Failed to setup Chrome driver with webdriver manager: {str(e2)}")
                 return False
 
-    def wait_for_products_to_load(self, timeout=20):
-        """Wait for products to dynamically load on the page"""
+    # ----------------- Page readiness and validation -----------------
+    def wait_for_page_ready(self, expected_url: Optional[str] = None, timeout: int = 10) -> bool:
+        """Wait for document readyState == 'complete' and do a minimal validation."""
         try:
-            # Common selectors for Lazada product items
-            product_selectors = [
-                '[data-qa-locator="product-item"]',
-                '.product-item',
-                '.item-box',
-                '.c2prKC',
-                '.product',
-                '[data-testid="product-item"]',
-                '.item-card',
-                '.product-card'
-            ]
-            
-            for selector in product_selectors:
+            wait = WebDriverWait(self.driver, timeout)
+            wait.until(lambda driver: driver.execute_script("return document.readyState") == "complete")
+            time.sleep(1)  # allow JS to start executing
+            if expected_url:
+                return self.validate_page_loaded(expected_url)
+            return True
+        except TimeoutException:
+            print(f"[{_now()}] Timeout waiting for page to be ready")
+            return False
+        except Exception as e:
+            print(f"[{_now()}] Error waiting for page ready: {str(e)}")
+            return False
+
+    def validate_page_loaded(self, expected_url: Optional[str]) -> bool:
+        """Validate that the current page contains meaningful product-related content."""
+        try:
+            current_url = self.driver.current_url
+            page_source = self.driver.page_source
+            if not current_url or current_url == "data:,":
+                print(f"[{_now()}] Page validation failed: Invalid current URL: {current_url}")
+                return False
+
+            if not page_source or len(page_source.strip()) < 50:
+                print(f"[{_now()}] Page validation failed: Page content too short or empty")
+                return False
+
+            page_lower = page_source.lower()
+
+            # Critical error indicators
+            found_critical = [i for i in CRITICAL_ERROR_INDICATORS if i in page_lower]
+            if found_critical:
+                print(f"[{_now()}] Page validation failed: Error page detected - {found_critical}")
+                return False
+
+            title_lower = (self.driver.title or "").lower()
+            ambiguous_error_phrases = ['error occurred', 'something went wrong', 'try again later']
+            for phrase in ambiguous_error_phrases:
+                if phrase in title_lower:
+                    print(f"[{_now()}] Page validation failed: Error phrase in title - '{phrase}'")
+                    return False
+                # look for phrase in obvious error markup contexts
+                contexts = [
+                    f'<h1>{phrase}</h1>', f'<h2>{phrase}</h2>', f'<h3>{phrase}</h3>',
+                    f'<div class="error">{phrase}', f'<div class="message">{phrase}',
+                    f'<p class="error">{phrase}', f'<span class="error">{phrase}'
+                ]
+                if any(context in page_lower for context in contexts):
+                    print(f"[{_now()}] Page validation failed: Error message in error context - '{phrase}'")
+                    return False
+
+            # Check for product indicators
+            found_indicators = [ind for ind in PRODUCT_PAGE_INDICATORS if ind in page_lower]
+            if not found_indicators:
+                print(f"[{_now()}] Page validation failed: No product-related content found")
+                print(f"[{_now()}] Page title: {self.driver.title}")
+                print(f"[{_now()}] Page source length: {len(page_source)}")
+                sample_content = page_source[:500] if len(page_source) > 500 else page_source
+                print(f"[{_now()}] Page content sample: {sample_content[:200]}...")
+                return False
+
+            print(f"[{_now()}] Page validation passed for: {expected_url}")
+            print(f"[{_now()}] Found indicators: {found_indicators[:5]}...")
+            return True
+        except Exception as e:
+            print(f"[{_now()}] Error validating page load: {str(e)}")
+            return False
+
+    # ----------------- Product-list extraction and waiting -----------------
+    def wait_for_products_to_load(self, timeout: int = 20) -> List[Any]:
+        """
+        Wait for known product selectors; fallback to price selectors and extract parent containers.
+        Returns a list of selenium web elements (product containers) or empty list.
+        """
+        try:
+            for selector in PRODUCT_SELECTORS:
                 try:
                     wait = WebDriverWait(self.driver, timeout)
                     elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
                     if elements:
-                        print(f"[{datetime.now()}] Found {len(elements)} products using selector: {selector}")
+                        print(f"[{_now()}] Found {len(elements)} products using selector: {selector}")
                         return elements
                 except TimeoutException:
                     continue
-            
-            # If specific selectors don't work, try waiting for any elements with price indicators
-            price_selectors = [
-                '[class*="price"]',
-                '[class*="Price"]',
-                '[data-testid*="price"]'
-            ]
-            
-            for selector in price_selectors:
+
+            # fallback: wait for price elements and use their parent containers
+            for selector in PRICE_SELECTORS:
                 try:
                     wait = WebDriverWait(self.driver, timeout)
                     elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
                     if elements:
-                        print(f"[{datetime.now()}] Found {len(elements)} price elements, extracting parent containers")
-                        # Get parent elements that likely contain product info
+                        print(f"[{_now()}] Found {len(elements)} price elements, extracting parent containers")
                         product_containers = []
                         for elem in elements:
-                            parent = elem.find_element(By.XPATH, "./../..")
-                            if parent not in product_containers:
-                                product_containers.append(parent)
-                        return product_containers[:20]  # Limit to first 20
+                            try:
+                                parent = elem.find_element(By.XPATH, "./../..")
+                                if parent not in product_containers:
+                                    product_containers.append(parent)
+                            except Exception:
+                                continue
+                        return product_containers[:20]
                 except TimeoutException:
                     continue
-            
-            print(f"[{datetime.now()}] No products found with known selectors within {timeout} seconds")
+
+            print(f"[{_now()}] No products found with known selectors within {timeout} seconds")
             return []
-            
         except Exception as e:
-            print(f"[{datetime.now()}] Error waiting for products: {str(e)}")
+            print(f"[{_now()}] Error waiting for products: {str(e)}")
             return []
 
-    def extract_product_info_from_element(self, element):
-        """Extract product information from a selenium web element"""
+    # ----------------- Extract product info -----------------
+    def extract_product_info_from_element(self, element) -> Optional[Dict[str, Any]]:
+        """Extract title, image and url from a product container element."""
         try:
-            product = {}
-            
-            # Extract title
-            title_selectors = [
-                'h2', 'h3', '.title', '[data-qa-locator="product-name"]', 
-                'a[title]', '[class*="title"]', '[class*="Title"]'
-            ]
             title = ""
-            for selector in title_selectors:
+            for selector in TITLE_SELECTORS:
                 try:
                     title_elem = element.find_element(By.CSS_SELECTOR, selector)
-                    title = title_elem.get_attribute('title') or title_elem.text.strip()
+                    title = _safe_get_attr(title_elem, 'title') or (title_elem.text or "").strip()
                     if title:
                         break
                 except NoSuchElementException:
                     continue
-            
-            # Extract image URL
+
             image_url = ""
             try:
                 img_elem = element.find_element(By.CSS_SELECTOR, 'img')
-                image_url = img_elem.get_attribute('src') or img_elem.get_attribute('data-src') or ""
+                image_url = _safe_get_attr(img_elem, 'src') or _safe_get_attr(img_elem, 'data-src') or ""
             except NoSuchElementException:
                 pass
-            
-            # Extract product URL
+
             product_url = ""
             try:
                 link_elem = element.find_element(By.CSS_SELECTOR, 'a')
-                product_url = link_elem.get_attribute('href') or ""
+                product_url = _safe_get_attr(link_elem, 'href') or ""
             except NoSuchElementException:
                 pass
-            
-            if title:  # Only return if we have some useful information
+
+            if title:
                 product = {
                     'title': title or 'No title available',
                     'image': image_url,
@@ -163,323 +302,162 @@ class BrowserScraper:
                     'scraped_at': datetime.now().isoformat()
                 }
                 return product
-                
         except Exception as e:
-            print(f"[{datetime.now()}] Error extracting product info: {str(e)}")
-        
+            print(f"[{_now()}] Error extracting product info: {str(e)}")
         return None
 
-    def check_product_availability(self, product_url):
-        """Check product availability and extract price from individual product page"""
+    # ----------------- Price extraction & availability -----------------
+    def extract_price_from_page(self) -> Optional[str]:
+        """Try many selectors and return first reasonable price-like string found."""
+        try:
+            for selector in PRICE_EXTRACT_SELECTORS:
+                try:
+                    price_elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for elem in price_elements:
+                        price_text = (elem.text or "").strip()
+                        if price_text and any(symbol in price_text for symbol in ['$', '₹', '€', '£', '¥', 'S$', 'USD', 'SGD']):
+                            price_text = price_text.replace('\n', ' ').strip()
+                            if len(price_text) < 50:
+                                print(f"[{_now()}] Found price: {price_text}")
+                                return price_text
+                except NoSuchElementException:
+                    continue
+                except Exception:
+                    continue
+            print(f"[{_now()}] No price found on page")
+            return None
+        except Exception as e:
+            print(f"[{_now()}] Error extracting price: {str(e)}")
+            return None
+
+    def check_availability_indicators(self) -> Tuple[bool, str]:
+        """Check presence of buy/add-to-cart style indicators in the page source."""
+        try:
+            page_source = (self.driver.page_source or "").lower()
+            has_buy_indicators = any(indicator in page_source for indicator in BUY_INDICATORS)
+            if has_buy_indicators:
+                return True, "Buy/Add to cart options available"
+            else:
+                return False, "No buy options found"
+        except Exception as e:
+            print(f"[{_now()}] Error checking availability indicators: {str(e)}")
+            return False, f"Error checking indicators: {str(e)}"
+
+    def check_quantity_selector_disabled(self) -> bool:
+        """Check if any quantity inputs are disabled/read-only."""
+        try:
+            for selector in QUANTITY_SELECTORS:
+                try:
+                    quantity_elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for elem in quantity_elements:
+                        try:
+                            class_attr = (elem.get_attribute('class') or "").lower()
+                            is_disabled = (
+                                elem.get_attribute('disabled') is not None or
+                                elem.get_attribute('readonly') is not None or
+                                ('disabled' in class_attr if class_attr else False)
+                            )
+                            if is_disabled:
+                                print(f"[{_now()}] Found disabled quantity selector")
+                                return True
+                        except Exception:
+                            continue
+                except NoSuchElementException:
+                    continue
+                except Exception:
+                    continue
+            return False
+        except Exception as e:
+            print(f"[{_now()}] Error checking quantity selector: {str(e)}")
+            return False
+
+    # ----------------- Check single product page -----------------
+    def check_product_availability(self, product_url: str) -> Tuple[bool, str, Optional[str]]:
+        """
+        Visit product_url, validate page loaded, attempt price extraction and availability check.
+        Returns (is_available, status_string, price_or_None)
+        """
         try:
             if not product_url or not product_url.startswith('http'):
-                # Convert relative URLs to absolute URLs
                 if product_url.startswith('//'):
                     product_url = 'https:' + product_url
                 elif product_url.startswith('/'):
                     product_url = 'https://www.lazada.sg' + product_url
                 else:
                     return False, "Invalid URL", None
-            
-            print(f"[{datetime.now()}] Checking availability and price for: {product_url}")
+
+            print(f"[{_now()}] Checking availability and price for: {product_url}")
             self.driver.get(product_url)
-            
-            # Wait for page to be ready and validate it loaded correctly
+
             if not self.wait_for_page_ready(product_url):
-                print(f"[{datetime.now()}] Page failed to load correctly for: {product_url}")
+                print(f"[{_now()}] Page failed to load correctly for: {product_url}")
                 return False, "Page failed to load correctly", None
-            
-            # Extract price information
+
             price = self.extract_price_from_page()
-            
-            # Check availability using multiple methods
             is_available, availability_reason = self.check_availability_indicators()
-            
+
             if is_available:
                 status = f"Available{' - ' + price if price else ''}"
                 return True, status, price
             else:
                 print(f"Product not available: {product_url} ({availability_reason})")
                 return False, f"Not available ({availability_reason})", price
-                
+
         except Exception as e:
-            print(f"[{datetime.now()}] Error checking product availability: {str(e)}")
+            print(f"[{_now()}] Error checking product availability: {str(e)}")
             return False, f"Error: {str(e)}", None
 
-    def extract_price_from_page(self):
-        """Extract price information from the current product page"""
+    # ----------------- Main scraping flow -----------------
+    def scrape_products(self) -> List[Dict[str, Any]]:
+        """Main flow: setup driver, load base_url, find product containers, extract info, check availability."""
         try:
-            # Common price selectors for e-commerce sites
-            price_selectors = [
-                '[class*="price"]',
-                '[class*="Price"]', 
-                '[data-qa-locator*="price"]',
-                '[data-testid*="price"]',
-                '.price',
-                '.current-price',
-                '.sale-price',
-                '.final-price',
-                'span[class*="price"]',
-                'div[class*="price"]',
-                '.product-price',
-                '.price-current'
-            ]
-            
-            for selector in price_selectors:
-                try:
-                    price_elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for elem in price_elements:
-                        price_text = elem.text.strip()
-                        # Look for text that contains currency symbols or price patterns
-                        if price_text and any(symbol in price_text for symbol in ['$', '₹', '€', '£', '¥', 'S$', 'USD', 'SGD']):
-                            # Clean up the price text
-                            price_text = price_text.replace('\n', ' ').strip()
-                            if len(price_text) < 50:  # Reasonable price text length
-                                print(f"[{datetime.now()}] Found price: {price_text}")
-                                return price_text
-                except NoSuchElementException:
-                    continue
-                except Exception as e:
-                    continue
-            
-            print(f"[{datetime.now()}] No price found on page")
-            return None
-            
-        except Exception as e:
-            print(f"[{datetime.now()}] Error extracting price: {str(e)}")
-            return None
-
-    def check_availability_indicators(self):
-        """Check for buy now indicators to determine product availability"""
-        try:
-            page_source = self.driver.page_source.lower()
-            
-            # Check for positive availability indicators (buy now type buttons)
-            buy_now_indicators = ['buy now']
-            has_buy_indicators = any(indicator in page_source for indicator in buy_now_indicators)
-            
-            # Simple logic: if buy now indicators are present, product is available
-            if has_buy_indicators:
-                return True, "Buy/Add to cart options available"
-            else:
-                return False, "No buy options found"
-                
-        except Exception as e:
-            print(f"[{datetime.now()}] Error checking availability indicators: {str(e)}")
-            return False, f"Error checking indicators: {str(e)}"
-
-    def wait_for_page_ready(self, expected_url=None, timeout=10):
-        """Wait for page to be ready and validate it loaded correctly"""
-        try:
-            # Wait for the document to be ready
-            wait = WebDriverWait(self.driver, timeout)
-            wait.until(lambda driver: driver.execute_script("return document.readyState") == "complete")
-            
-            # Additional wait for any dynamic content to start loading
-            time.sleep(1)  # Brief wait for JS to start executing
-            
-            # Validate the page loaded correctly if URL is provided
-            if expected_url:
-                return self.validate_page_loaded(expected_url)
-            
-            return True
-            
-        except TimeoutException:
-            print(f"[{datetime.now()}] Timeout waiting for page to be ready")
-            return False
-        except Exception as e:
-            print(f"[{datetime.now()}] Error waiting for page ready: {str(e)}")
-            return False
-
-    def validate_page_loaded(self, expected_url):
-        """Validate that the current page has actually loaded correctly"""
-        try:
-            current_url = self.driver.current_url
-            page_source = self.driver.page_source
-            
-            # Check 1: Verify current URL matches or is related to expected URL
-            # Handle redirects by checking if the domain/path is reasonably related
-            if not current_url or current_url == "data:,":
-                print(f"[{datetime.now()}] Page validation failed: Invalid current URL: {current_url}")
-                return False
-            
-            # Check 2: Ensure page has meaningful content (not empty or error page)
-            if not page_source or len(page_source.strip()) < 50:
-                print(f"[{datetime.now()}] Page validation failed: Page content too short or empty")
-                return False
-            
-            # Check 3: Look for common error indicators that suggest page didn't load properly
-            page_lower = page_source.lower()
-            
-            # More specific error indicators that are less likely to appear in normal content
-            critical_error_indicators = [
-                'page not found', '404 error', 'server error', '500 error',
-                'network error', 'connection failed', 
-                'access denied', 'forbidden', 'not available in your region',
-                'blocked', 'captcha required', 'bot detection', 'unusual traffic detected',
-                'temporarily unavailable', 'site maintenance', 'under maintenance',
-                'internal server error', 'bad gateway', 'service unavailable'
-            ]
-            
-            # Check for critical errors first
-            found_critical_errors = [indicator for indicator in critical_error_indicators if indicator in page_lower]
-            if found_critical_errors:
-                print(f"[{datetime.now()}] Page validation failed: Error page detected - {found_critical_errors}")
-                return False
-            
-            # Additional context-aware checks for more ambiguous phrases
-            # Only fail for these if they appear in likely error contexts (titles, headers, prominent messages)
-            page_title = self.driver.title.lower() if self.driver.title else ""
-            
-            # Check if common error phrases appear in page title or in isolation (likely error pages)
-            ambiguous_error_phrases = ['error occurred', 'something went wrong', 'try again later']
-            for phrase in ambiguous_error_phrases:
-                if phrase in page_title:
-                    print(f"[{datetime.now()}] Page validation failed: Error phrase in title - '{phrase}'")
-                    return False
-                # Check if the phrase appears as a standalone message (typical of error pages)
-                # Look for the phrase surrounded by common error page markup
-                error_contexts = [
-                    f'<h1>{phrase}</h1>', f'<h2>{phrase}</h2>', f'<h3>{phrase}</h3>',
-                    f'<div class="error">{phrase}', f'<div class="message">{phrase}',
-                    f'<p class="error">{phrase}', f'<span class="error">{phrase}'
-                ]
-                if any(context in page_lower for context in error_contexts):
-                    print(f"[{datetime.now()}] Page validation failed: Error message in error context - '{phrase}'")
-                    return False
-            
-            # Check 4: Verify the page looks like a product page (has typical e-commerce elements)
-            # Expanded indicators to be more inclusive for different page formats and languages
-            product_indicators = [
-                # Original indicators
-                'price', 'product', 'buy', 'cart', 'add to cart', 'purchase', 'order',
-                # Common e-commerce variations
-                'add-to-cart', 'buy now', 'buy-now', 'quantity', 'qty', 'delivery',
-                'shipping', 'checkout', 'item', 'sku', 'stock', 'available',
-                # Lazada-specific indicators
-                'pdp-', 'lazada', 'item-detail', 'product-detail', 'current-price',
-                'original-price', 'sale-price', 'final-price',
-                # Currency symbols and price formats
-                's$', '$', '€', '£', '¥', 'usd', 'sgd', 'price_', 'currency',
-                # Additional product page elements
-                'rating', 'review', 'star', 'seller', 'brand', 'description',
-                'specification', 'warranty', 'return', 'exchange'
-            ]
-            
-            found_indicators = [indicator for indicator in product_indicators if indicator in page_lower]
-            
-            if not found_indicators:
-                print(f"[{datetime.now()}] Page validation failed: No product-related content found")
-                print(f"[{datetime.now()}] Page title: {self.driver.title}")
-                print(f"[{datetime.now()}] Page source length: {len(page_source)}")
-                # Show a small sample of page content for debugging
-                sample_content = page_source[:500] if len(page_source) > 500 else page_source
-                print(f"[{datetime.now()}] Page content sample: {sample_content[:200]}...")
-                return False
-            
-            print(f"[{datetime.now()}] Page validation passed for: {expected_url}")
-            print(f"[{datetime.now()}] Found indicators: {found_indicators[:5]}...")  # Show first 5 found indicators
-            return True
-            
-        except Exception as e:
-            print(f"[{datetime.now()}] Error validating page load: {str(e)}")
-            return False
-
-    def check_quantity_selector_disabled(self):
-        """Check if quantity number picker/selector is disabled"""
-        try:
-            # Common selectors for quantity inputs
-            quantity_selectors = [
-                'input[type="number"]',
-                '[class*="quantity"]',
-                '[class*="qty"]',
-                '[data-qa*="quantity"]',
-                '[data-testid*="quantity"]',
-                'select[class*="quantity"]',
-                'input[name*="quantity"]',
-                'input[name*="qty"]'
-            ]
-            
-            for selector in quantity_selectors:
-                try:
-                    quantity_elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for elem in quantity_elements:
-                        # Check if element is disabled
-                        is_disabled = (
-                            elem.get_attribute('disabled') is not None or
-                            elem.get_attribute('readonly') is not None or
-                            'disabled' in elem.get_attribute('class').lower() if elem.get_attribute('class') else False
-                        )
-                        if is_disabled:
-                            print(f"[{datetime.now()}] Found disabled quantity selector")
-                            return True
-                except NoSuchElementException:
-                    continue
-                except Exception as e:
-                    continue
-            
-            return False
-            
-        except Exception as e:
-            print(f"[{datetime.now()}] Error checking quantity selector: {str(e)}")
-            return False
-
-    def scrape_products(self):
-        """Scrape products using browser automation to handle dynamic content"""
-        try:
-            print(f"[{datetime.now()}] Starting browser-based scrape of store...")
+            print(f"[{_now()}] Starting browser-based scrape of store...")
             print(f"URL: {self.base_url}")
 
             if not SELENIUM_AVAILABLE:
-                print(f"[{datetime.now()}] Selenium not available.")
+                print(f"[{_now()}] Selenium not available.")
                 return []
 
-            # Setup browser driver
             if not self.setup_driver():
-                print(f"[{datetime.now()}] Failed to setup browser driver.")
+                print(f"[{_now()}] Failed to setup browser driver.")
                 return []
 
-            # Navigate to the page
-            print(f"[{datetime.now()}] Navigating to the page...")
+            print(f"[{_now()}] Navigating to the page...")
             self.driver.get(self.base_url)
-            
-            # Wait for page to be ready
-            print(f"[{datetime.now()}] Waiting for page to be ready...")
+
+            print(f"[{_now()}] Waiting for page to be ready...")
             if not self.wait_for_page_ready(self.base_url):
-                print(f"[{datetime.now()}] Page failed to load properly")
+                print(f"[{_now()}] Page failed to load properly")
                 return []
-            
-            # Wait for products to load dynamically
-            print(f"[{datetime.now()}] Waiting for products to load...")
+
+            print(f"[{_now()}] Waiting for products to load...")
             product_elements = self.wait_for_products_to_load(timeout=30)
-            
-            products = []
+
+            products: List[Dict[str, Any]] = []
             if product_elements:
-                print(f"[{datetime.now()}] Extracting information from {len(product_elements)} products...")
+                print(f"[{_now()}] Extracting information from {len(product_elements)} products...")
                 for idx, element in enumerate(product_elements):
                     try:
                         product = self.extract_product_info_from_element(element)
                         if product:
                             products.append(product)
                     except Exception as e:
-                        print(f"[{datetime.now()}] Error extracting product {idx}: {str(e)}")
+                        print(f"[{_now()}] Error extracting product {idx}: {str(e)}")
                         continue
-            
+
             if not products:
-                print(f"[{datetime.now()}] No products found.")
-            
-            # Check availability for each product
-            available_products = []
+                print(f"[{_now()}] No products found.")
+
+            available_products: List[Dict[str, Any]] = []
             available_count = 0
-            
-            print(f"[{datetime.now()}] Checking availability for {len(products)} products...")
+
+            print(f"[{_now()}] Checking availability for {len(products)} products...")
             for product in products:
                 if product.get('url'):
                     is_available, status, price = self.check_product_availability(product['url'])
                     product['availability_status'] = status
                     product['is_available'] = is_available
-                    product['price'] = price  # Add price to product data
-                    
+                    product['price'] = price
                     if is_available:
                         available_products.append(product)
                         available_count += 1
@@ -487,27 +465,25 @@ class BrowserScraper:
                     product['availability_status'] = "No URL available"
                     product['is_available'] = False
                     product['price'] = None
-            
-            print(f"[{datetime.now()}] Browser scraping completed. Found {len(products)} products, {available_count} available.")
-            
-            # Display results
+
+            print(f"[{_now()}] Browser scraping completed. Found {len(products)} products, {available_count} available.")
             self.display_results(available_products, available_count, len(products))
-            
             return available_products
 
         except Exception as e:
-            print(f"[{datetime.now()}] Browser scraper error: {str(e)}")
+            print(f"[{_now()}] Browser scraper error: {str(e)}")
             return []
-        
         finally:
             if self.driver:
                 try:
                     self.driver.quit()
-                except:
+                except Exception:
                     pass
 
-    def display_results(self, products, available_count=None, total_count=None):
-        """Display the scraped products in a formatted way"""
+    # ----------------- Results display -----------------
+    def display_results(self, products: List[Dict[str, Any]], available_count: Optional[int] = None,
+                        total_count: Optional[int] = None) -> None:
+        """Display the scraped products in a formatted way (keeps original print behavior)."""
         print(f"\n{'='*80}")
         print(f"STORE SCRAPING RESULTS (BROWSER) - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'='*80}")
@@ -522,15 +498,10 @@ class BrowserScraper:
 
         for idx, product in enumerate(products, 1):
             print(f"\n{idx}. {product['title']} ({product['price']})")
-            if product['url']:
+            if product.get('url'):
                 print(f"   URL: {product['url']}")
-            # if product.get('price'):
-            #     print(f"   Price: {product['price']}")
             if product.get('availability_status'):
                 print(f"   Status: {product['availability_status']}")
-            # if product['image']:
-            #     print(f"   Image: {product['image']}")
-            # print(f"   Scraped: {product['scraped_at']}")
 
         print(f"\n{'='*80}")
         print(f"Available products listed: {len(products)}")
@@ -538,54 +509,47 @@ class BrowserScraper:
             print(f"Total products checked: {total_count}")
         print(f"{'='*80}\n")
 
-def main():
-    """Main function to run the scraper"""
-    print(f"[{datetime.now()}] Scraper starting...")
 
-    # Browser-only scraper
+# ---------- Main entry point ----------
+def main():
+    print(f"[{_now()}] Scraper starting...")
+
     browser_scraper = BrowserScraper()
     available_products = browser_scraper.scrape_products()
 
-    # Store scraping results in a single text variable and send to Telegram
+    # Try to send notifications if notification_service module exists
     try:
         from notification_service import create_notification_service
-        
-        # Create notification service
         notification_service = create_notification_service()
-        
-        # Format products into text and send notifications
         if available_products:
-            print(f"[{datetime.now()}] Found {len(available_products)} available products")
-            
-            # Send notifications to Telegram chats from Firebase
+            print(f"[{_now()}] Found {len(available_products)} available products")
             success = notification_service.notify_products(available_products)
-            
             if success:
-                print(f"[{datetime.now()}] Product notifications sent successfully")
+                print(f"[{_now()}] Product notifications sent successfully")
             else:
-                print(f"[{datetime.now()}] Failed to send product notifications")
+                print(f"[{_now()}] Failed to send product notifications")
         else:
-            print(f"[{datetime.now()}] No available products found - no notifications sent")
-            
+            print(f"[{_now()}] No available products found - no notifications sent")
     except ImportError:
-        print(f"[{datetime.now()}] Notification service not available - running without notifications")
+        print(f"[{_now()}] Notification service not available - running without notifications")
     except Exception as e:
-        print(f"[{datetime.now()}] Error in notification service: {str(e)}")
+        print(f"[{_now()}] Error in notification service: {str(e)}")
 
-    # Optional: Save results to JSON file
+    # Save results to JSON if any available products found
     if available_products:
         print('Available products:', len(available_products))
         filename = f"available_products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(available_products, f, indent=2, ensure_ascii=False)
-            print(f"[{datetime.now()}] Available products saved to {filename}")
+            print(f"[{_now()}] Available products saved to {filename}")
         except Exception as e:
-            print(f"[{datetime.now()}] Error saving results: {str(e)}")
+            print(f"[{_now()}] Error saving results: {str(e)}")
     else:
-        print(f"[{datetime.now()}] No available products found.")
+        print(f"[{_now()}] No available products found.")
 
-    print(f"[{datetime.now()}] Scraper completed.")
+    print(f"[{_now()}] Scraper completed.")
+
 
 if __name__ == "__main__":
     main()
