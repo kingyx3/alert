@@ -60,7 +60,10 @@ PRICE_EXTRACT_SELECTORS = [
     '.price-current'
 ]
 
-BUY_INDICATORS = ['buy now']  # used in availability detection
+BUY_INDICATORS = [
+    'buy now', 'buy', 'add to cart', 'add to bag', 'purchase', 'order now',
+    'add-to-cart', 'buy-now', 'add item', 'order', 'checkout', 'get it now'
+]  # used in availability detection
 
 CRITICAL_ERROR_INDICATORS = [
     'page not found', '404 error', 'server error', '500 error',

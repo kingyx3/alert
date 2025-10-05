@@ -157,5 +157,26 @@ class TestProductModel(unittest.TestCase):
         self.assertEqual(product.availability_status, 'In Stock')
 
 
+class TestIssue22AvailabilityFix(unittest.TestCase):
+    """Test fix for issue #22: Expand availability detection indicators."""
+    
+    def test_expanded_buy_indicators(self):
+        """Test that BUY_INDICATORS now includes common purchase terms."""
+        from scraper_components.config.constants import BUY_INDICATORS
+        
+        # Should include the original indicator
+        self.assertIn('buy now', BUY_INDICATORS)
+        
+        # Should now include common alternatives
+        expected_indicators = ['buy', 'add to cart', 'purchase', 'order', 'checkout']
+        for indicator in expected_indicators:
+            self.assertIn(indicator, BUY_INDICATORS, 
+                         f"Missing common indicator: {indicator}")
+        
+        # Should have more than just 'buy now'
+        self.assertGreater(len(BUY_INDICATORS), 1, 
+                          "BUY_INDICATORS should contain multiple terms")
+
+
 if __name__ == '__main__':
     unittest.main()
