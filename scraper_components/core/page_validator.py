@@ -10,6 +10,7 @@ from typing import Optional
 
 from ..config.constants import CRITICAL_ERROR_INDICATORS, PRODUCT_PAGE_INDICATORS
 from ..utils.helpers import get_timestamp
+from .recaptcha_handler import ReCAPTCHAHandler
 
 try:
     from selenium.webdriver.support.ui import WebDriverWait
@@ -27,8 +28,10 @@ except ImportError:
 class PageValidator:
     """Validates page loading and content for scraping operations."""
     
-    def __init__(self, driver):
+    def __init__(self, driver, webdriver_manager=None):
         self.driver = driver
+        self.webdriver_manager = webdriver_manager
+        self.recaptcha_handler = ReCAPTCHAHandler(driver, webdriver_manager)
     
     def wait_for_page_ready(self, expected_url: Optional[str] = None, timeout: int = 10) -> bool:
         """Wait for document readyState == 'complete' and ensure content stability."""
@@ -80,6 +83,24 @@ class PageValidator:
                 
             if not self._has_sufficient_content(page_source):
                 return False
+                
+            # Check for reCAPTCHA and handle it if present
+            if self.recaptcha_handler.detect_recaptcha():
+                print(f"[{get_timestamp()}] reCAPTCHA detected, attempting to handle...")
+                
+                if self.recaptcha_handler.handle_recaptcha():
+                    # Wait for reCAPTCHA completion and page to proceed
+                    if self.recaptcha_handler.wait_for_recaptcha_completion():
+                        print(f"[{get_timestamp()}] reCAPTCHA handled successfully, re-validating page...")
+                        # Re-get page source after reCAPTCHA handling
+                        page_source = self.driver.page_source
+                        current_url = self.driver.current_url
+                    else:
+                        print(f"[{get_timestamp()}] reCAPTCHA completion timeout")
+                        return False
+                else:
+                    print(f"[{get_timestamp()}] Failed to handle reCAPTCHA")
+                    return False
                 
             page_lower = page_source.lower()
             

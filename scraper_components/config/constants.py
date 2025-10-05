@@ -72,6 +72,33 @@ CRITICAL_ERROR_INDICATORS = [
     'internal server error', 'bad gateway', 'service unavailable'
 ]
 
+# ---------- reCAPTCHA Detection ----------
+RECAPTCHA_INDICATORS = [
+    'we need to check if you are a robot',
+    'verify you are human',
+    'please complete the captcha',
+    'security check',
+    'prove you are not a robot',
+    'i\'m not a robot',
+    'recaptcha',
+    'hcaptcha',
+    'captcha challenge'
+]
+
+RECAPTCHA_SELECTORS = [
+    'iframe[src*="recaptcha"]',
+    'iframe[src*="hcaptcha"]',
+    '.recaptcha-checkbox',
+    '#recaptcha-checkbox',
+    '[data-recaptcha]',
+    '.g-recaptcha',
+    '.h-captcha',
+    'input[type="checkbox"][aria-label*="not a robot"]',
+    'input[type="checkbox"][aria-label*="I\'m not a robot"]',
+    '.recaptcha-checkbox-border',
+    '.recaptcha-checkbox-checkmark'
+]
+
 PRODUCT_PAGE_INDICATORS = [
     'price', 'product', 'buy', 'cart', 'add to cart', 'purchase', 'order',
     'add-to-cart', 'buy now', 'buy-now', 'quantity', 'qty', 'delivery',
