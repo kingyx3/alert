@@ -392,6 +392,52 @@ class TestNotificationServiceScraper2Format(unittest.TestCase):
         message = notification_service.format_products_text([])
         
         self.assertEqual(message, "🚫 No available products found at this time.")
+    
+    def test_notification_service_with_sold_count_and_sorting(self):
+        """Test notification service displays sold count and sorts products alphabetically."""
+        from notification_service import create_notification_service
+        
+        scraper2_products = [
+            {
+                "name": "Zebra Product Last",
+                "priceShow": "S$10.00",
+                "inStock": True,
+                "url": "https://example.com/zebra-product",
+                "sold": "50 sold",
+            },
+            {
+                "name": "Alpha Product First",
+                "priceShow": "S$5.00", 
+                "inStock": True,
+                "url": "https://example.com/alpha-product",
+                "sold": "108 sold",
+            },
+            {
+                "name": "Beta Product Middle",
+                "priceShow": "S$7.50",
+                "inStock": True,
+                "url": "https://example.com/beta-product",
+                # No sold count to test missing sold info
+            }
+        ]
+        
+        notification_service = create_notification_service()
+        message = notification_service.format_products_text(scraper2_products)
+        
+        # Check alphabetical sorting - Alpha should be first, Beta second, Zebra third
+        lines = message.split('\n')
+        product_lines = [line for line in lines if '🎯' in line]
+        
+        self.assertIn('1. 🎯 Alpha Product First', product_lines[0])
+        self.assertIn('2. 🎯 Beta Product Middle', product_lines[1]) 
+        self.assertIn('3. 🎯 Zebra Product Last', product_lines[2])
+        
+        # Check sold count display
+        self.assertIn('- "108 sold"', message)
+        self.assertIn('- "50 sold"', message)
+        
+        # Check that product without sold count doesn't have dash
+        self.assertIn('Beta Product Middle (S$7.50)\n', message)  # No sold count suffix
 
 
 if __name__ == '__main__':

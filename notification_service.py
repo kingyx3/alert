@@ -73,11 +73,14 @@ class NotificationService:
         if not products:
             return "🚫 No available products found at this time."
         
+        # Sort products alphabetically by name
+        sorted_products = sorted(products, key=lambda x: x.get('name', '').lower())
+        
         header = f"🛒 Store Alert - {(datetime.now()+timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')}\n"
-        header += f"📦 Found {len(products)} available products:\n\n"
+        header += f"📦 Found {len(sorted_products)} available products:\n\n"
         
         product_lines = []
-        for idx, product in enumerate(products, 1):
+        for idx, product in enumerate(sorted_products, 1):
             # Use scraper2 field names
             name = product.get('name', 'Unknown Product')
             url = product.get('url', '')
@@ -86,7 +89,11 @@ class NotificationService:
             if not price_show and 'price' in product and product['price'] is not None:
                 price_show = f"${product['price']:.2f}"
             
-            product_line = f"{idx}. 🎯 {name} ({price_show})\n"
+            # Get sold count information
+            sold = product.get('sold', '')
+            sold_text = f' - "{sold}"' if sold else ''
+            
+            product_line = f"{idx}. 🎯 {name} ({price_show}){sold_text}\n"
             product_line += f"   🔗 {url}\n"
             
             product_lines.append(product_line)
