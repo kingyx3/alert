@@ -161,7 +161,7 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
 
 def main(shop_ajax_url: Optional[str] = None):
     print(f"[{_now()}] Scraper starting (simplified JSON fetch)...")
-    url = shop_ajax_url or os.environ.get("SHOP_AJAX_URL") or DEFAULT_SHOP_AJAX_URL
+    url = shop_ajax_url or os.environ.get("SCRAPING_URL") or DEFAULT_SHOP_AJAX_URL
     print(f"[{_now()}] Fetching: {url}")
 
     payload = fetch_json(url)
