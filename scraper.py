@@ -180,6 +180,10 @@ def main(shop_ajax_url: Optional[str] = None):
 
     available_products = filter_available_products(products)
 
+    # Log total and available products count before notifications
+    print(f"[{_now()}] Total products found: {len(products)}")
+    print(f"[{_now()}] Available products: {len(available_products)}")
+
     # Try to send notifications if notification_service module exists
     try:
         from notification_service import create_notification_service  # type: ignore
