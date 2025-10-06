@@ -314,5 +314,103 @@ class TestScreenshotFunctionality(unittest.TestCase):
         self.assertEqual(calls[1][0][0], "product_listing_page_failed")  # Second call for failure screenshot
 
 
+class TestScraper2NotificationCompatibility(unittest.TestCase):
+    """Test compatibility between scraper2 and notification service."""
+    
+    def test_normalize_product_for_notifications_basic(self):
+        """Test basic product normalization from scraper2 format."""
+        from scraper2 import normalize_product_for_notifications
+        
+        scraper2_product = {
+            "name": "Test Product",
+            "price": 19.99,
+            "priceShow": "S$19.99",
+            "inStock": True,
+            "url": "https://example.com/product",
+        }
+        
+        normalized = normalize_product_for_notifications(scraper2_product)
+        
+        # Check title mapping
+        self.assertEqual(normalized['title'], "Test Product")
+        self.assertEqual(normalized['price'], "S$19.99")
+        self.assertTrue(normalized['is_available'])
+        self.assertEqual(normalized['availability_status'], "Available")
+        self.assertEqual(normalized['url'], "https://example.com/product")
+        
+        # Original fields should still be present
+        self.assertEqual(normalized['name'], "Test Product")
+        self.assertTrue(normalized['inStock'])
+    
+    def test_normalize_product_numeric_price_only(self):
+        """Test product normalization when only numeric price is available."""
+        from scraper2 import normalize_product_for_notifications
+        
+        scraper2_product = {
+            "name": "Budget Product",
+            "price": 5.50,
+            "inStock": False,
+            "url": "https://example.com/budget",
+        }
+        
+        normalized = normalize_product_for_notifications(scraper2_product)
+        
+        self.assertEqual(normalized['title'], "Budget Product")
+        self.assertEqual(normalized['price'], "$5.50")  # Should format numeric price
+        self.assertFalse(normalized['is_available'])
+        self.assertEqual(normalized['availability_status'], "Out of stock")
+    
+    def test_normalize_product_no_price(self):
+        """Test product normalization when no price is available."""
+        from scraper2 import normalize_product_for_notifications
+        
+        scraper2_product = {
+            "name": "No Price Product",
+            "inStock": True,
+            "url": "https://example.com/noprice",
+        }
+        
+        normalized = normalize_product_for_notifications(scraper2_product)
+        
+        self.assertEqual(normalized['title'], "No Price Product")
+        self.assertEqual(normalized['price'], "")  # Should be empty string
+        self.assertTrue(normalized['is_available'])
+        self.assertEqual(normalized['availability_status'], "Available")
+    
+    def test_notification_service_with_normalized_products(self):
+        """Test that notification service works with normalized scraper2 products."""
+        from scraper2 import normalize_product_for_notifications
+        from notification_service import create_notification_service
+        
+        scraper2_products = [
+            {
+                "name": "Product A",
+                "priceShow": "S$10.00",
+                "inStock": True,
+                "url": "https://example.com/product-a",
+            },
+            {
+                "name": "Product B", 
+                "price": 25.99,
+                "inStock": True,
+                "url": "https://example.com/product-b",
+            }
+        ]
+        
+        # Normalize products
+        normalized_products = [normalize_product_for_notifications(p) for p in scraper2_products]
+        
+        # Test with notification service
+        notification_service = create_notification_service()
+        message = notification_service.format_products_text(normalized_products)
+        
+        # Should contain product names and prices
+        self.assertIn("Product A", message)
+        self.assertIn("Product B", message)
+        self.assertIn("S$10.00", message)
+        self.assertIn("$25.99", message)  # Formatted numeric price
+        self.assertIn("Found 2 available products", message)
+
+
 if __name__ == '__main__':
     unittest.main()
