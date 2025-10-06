@@ -13,14 +13,10 @@ import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-# Backward-compat helpers re-exported
-from scraper_components.utils.helpers import get_timestamp
-from scraper_components.config.constants import (
-    DEFAULT_WINDOW_SIZE, SYSTEM_CHROMEDRIVER_PATH, PRODUCT_SELECTORS,
-    PRICE_SELECTORS, TITLE_SELECTORS, PRICE_EXTRACT_SELECTORS,
-    QUANTITY_SELECTORS, BUY_INDICATORS, CRITICAL_ERROR_INDICATORS,
-    PRODUCT_PAGE_INDICATORS
-)
+# Inline helper functions (replacing scraper_components imports)
+def get_timestamp() -> str:
+    """Return current timestamp in ISO format."""
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 # Optional: use requests if available, otherwise fallback to urllib
 try:
