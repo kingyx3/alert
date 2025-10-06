@@ -314,5 +314,85 @@ class TestScreenshotFunctionality(unittest.TestCase):
         self.assertEqual(calls[1][0][0], "product_listing_page_failed")  # Second call for failure screenshot
 
 
+class TestNotificationServiceScraper2Format(unittest.TestCase):
+    """Test notification service works directly with scraper2 format."""
+    
+    def test_notification_service_with_scraper2_format(self):
+        """Test that notification service works directly with scraper2 product format."""
+        from notification_service import create_notification_service
+        
+        scraper2_products = [
+            {
+                "name": "Pokemon TCG Booster Pack",
+                "priceShow": "S$4.50",
+                "inStock": True,
+                "url": "https://example.com/booster-pack",
+                "sold": "100+ sold",
+                "rating": 4.8
+            },
+            {
+                "name": "Pokemon Collector's Edition",
+                "price": 89.99,  # numeric price without priceShow
+                "inStock": True,
+                "url": "https://example.com/collectors-edition",
+            }
+        ]
+        
+        # Test with notification service directly (no normalization needed)
+        notification_service = create_notification_service()
+        message = notification_service.format_products_text(scraper2_products)
+        
+        # Should contain product names and prices
+        self.assertIn("Pokemon TCG Booster Pack", message)
+        self.assertIn("Pokemon Collector's Edition", message)
+        self.assertIn("S$4.50", message)  # priceShow format
+        self.assertIn("$89.99", message)  # Formatted numeric price
+        self.assertIn("Found 2 available products", message)
+    
+    def test_notification_service_with_numeric_price_fallback(self):
+        """Test notification service formats numeric price when priceShow is missing."""
+        from notification_service import create_notification_service
+        
+        scraper2_product = {
+            "name": "Test Product",
+            "price": 15.75,  # Only numeric price
+            "inStock": True,
+            "url": "https://example.com/test-product",
+        }
+        
+        notification_service = create_notification_service()
+        message = notification_service.format_products_text([scraper2_product])
+        
+        self.assertIn("Test Product", message)
+        self.assertIn("$15.75", message)  # Should format numeric price
+        self.assertIn("Found 1 available products", message)
+    
+    def test_notification_service_with_no_price(self):
+        """Test notification service handles products with no price information."""
+        from notification_service import create_notification_service
+        
+        scraper2_product = {
+            "name": "No Price Product",
+            "inStock": True,
+            "url": "https://example.com/no-price",
+        }
+        
+        notification_service = create_notification_service()
+        message = notification_service.format_products_text([scraper2_product])
+        
+        self.assertIn("No Price Product", message)
+        self.assertIn("()", message)  # Empty price parentheses
+        self.assertIn("Found 1 available products", message)
+    
+    def test_notification_service_empty_products(self):
+        """Test notification service with empty product list."""
+        from notification_service import create_notification_service
+        
+        notification_service = create_notification_service()
+        message = notification_service.format_products_text([])
+        
+        self.assertEqual(message, "🚫 No available products found at this time.")
+
+
 if __name__ == '__main__':
     unittest.main()

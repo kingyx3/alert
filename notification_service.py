@@ -65,7 +65,7 @@ class NotificationService:
         Format the scraped products into a single text message
         
         Args:
-            products (List[Dict]): List of product dictionaries
+            products (List[Dict]): List of product dictionaries from scraper2 format
             
         Returns:
             str: Formatted text string
@@ -78,22 +78,20 @@ class NotificationService:
         
         product_lines = []
         for idx, product in enumerate(products, 1):
-            title = product.get('title', 'Unknown Product')
+            # Use scraper2 field names
+            name = product.get('name', 'Unknown Product')
             url = product.get('url', '')
-            status = product.get('availability_status', 'Status unknown')
-            price = product.get('price', '')
+            # Prefer priceShow over numeric price for display
+            price_show = product.get('priceShow', '')
+            if not price_show and 'price' in product and product['price'] is not None:
+                price_show = f"${product['price']:.2f}"
             
-            product_line = f"{idx}. 🎯 {title} ({price})\n"
-            # if price:
-            #     product_line += f"   💰 {price}\n"
+            product_line = f"{idx}. 🎯 {name} ({price_show})\n"
             product_line += f"   🔗 {url}\n"
-            # product_line += f"   ✅ {status}\n"
             
             product_lines.append(product_line)
         
-        # footer = f"\n🤖 Automated scraping completed at {datetime.now().strftime('%H:%M:%S')}"
-        
-        return header + "\n".join(product_lines) # + footer
+        return header + "\n".join(product_lines)
     
     def send_to_telegram_channel(self, message: str) -> bool:
         """
