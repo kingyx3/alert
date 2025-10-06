@@ -1,4 +1,4 @@
-name: Scraper
+name: Scraper2
 
 on:
   workflow_dispatch: # Allow manual triggering
