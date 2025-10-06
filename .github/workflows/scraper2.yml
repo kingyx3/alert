@@ -32,4 +32,4 @@ jobs:
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         SCRAPING_URL: ${{ inputs.scraping_url || vars.SCRAPING_URL }}
       run: |
-        python scraper2.py
+        python scraper.py
