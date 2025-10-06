@@ -84,8 +84,7 @@ class NotificationService:
             # Use scraper2 field names
             name = product.get('name', 'Unknown Product')
             url = product.get('url', '')
-            # Prefer priceShow over numeric price for display
-            price_show = product.get('priceShow', '')
+@@ -86,7 +89,11 @@ def format_products_text(self, products: List[Dict[str, Any]]) -> str:
             if not price_show and 'price' in product and product['price'] is not None:
                 price_show = f"${product['price']:.2f}"
             
@@ -95,7 +94,6 @@ class NotificationService:
             
             product_line = f"{idx}. 🎯 {name} ({price_show}){sold_text}\n"
             product_line += f"   🔗 {url}\n"
-            
             product_lines.append(product_line)
         
         return header + "\n".join(product_lines)
