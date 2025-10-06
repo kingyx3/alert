@@ -92,7 +92,7 @@ class NotificationService:
             
             # Get sold count information
             sold = product.get('sold', '')
-            sold_text = f' - "{sold}"' if sold else ''
+            sold_text = f' - {sold}' if sold else ''
             
             product_line = f"{idx}. 🎯 {name} ({price_show}){sold_text}\n"
             product_line += f"   🔗 {url}\n"
