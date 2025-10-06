@@ -150,40 +150,6 @@ def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any
 
     return products
 
-def normalize_product_for_notifications(product: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalize scraper2 product format to be compatible with notification service.
-    
-    Maps scraper2 fields to the format expected by notification_service:
-    - name -> title
-    - priceShow -> price (with fallback to numeric price)
-    - inStock -> availability_status and is_available
-    """
-    normalized = product.copy()
-    
-    # Map 'name' to 'title' for compatibility
-    if 'name' in product and 'title' not in product:
-        normalized['title'] = product['name']
-    
-    # Map price display format - prefer priceShow over numeric price
-    if 'priceShow' in product and product['priceShow']:
-        normalized['price'] = product['priceShow']
-    elif 'price' in product and product['price'] is not None:
-        # Format numeric price as string
-        normalized['price'] = f"${product['price']:.2f}"
-    else:
-        normalized['price'] = ""
-    
-    # Map availability status
-    in_stock = product.get('inStock', False)
-    normalized['is_available'] = in_stock
-    if in_stock:
-        normalized['availability_status'] = "Available"
-    else:
-        normalized['availability_status'] = "Out of stock"
-    
-    return normalized
-
 def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Returns subset of products that are considered 'available'.
@@ -224,9 +190,7 @@ def main(shop_ajax_url: Optional[str] = None):
         notification_service = create_notification_service()
         if available_products:
             print(f"[{_now()}] Found {len(available_products)} available products")
-            # Normalize products for notification compatibility
-            normalized_products = [normalize_product_for_notifications(p) for p in available_products]
-            success = notification_service.notify_products(normalized_products)
+            success = notification_service.notify_products(available_products)
             if success:
                 print(f"[{_now()}] Product notifications sent successfully")
             else:
