@@ -187,6 +187,37 @@ def main():
     except Exception as e:
         print(f"[{get_timestamp()}] Error in notification service: {str(e)}")
 
+    # Try to automate purchases if selenium_automation module exists and products are available
+    if available_products:
+        try:
+            from selenium_automation import automate_purchases  # type: ignore
+            print(f"[{get_timestamp()}] Starting automated purchase attempts for {len(available_products)} products")
+            
+            # Check if automation should be disabled via environment variable
+            disable_automation = os.environ.get("DISABLE_SELENIUM_AUTOMATION", "").lower() in ("true", "1", "yes")
+            
+            if disable_automation:
+                print(f"[{get_timestamp()}] Selenium automation disabled via environment variable")
+            else:
+                # Run automation in headless mode for CI/production
+                automation_results = automate_purchases(available_products, headless=True)
+                
+                print(f"[{get_timestamp()}] Automation results: {automation_results['successful']} successful, {automation_results['failed']} failed out of {automation_results['attempted']} attempted")
+                
+                # Save automation results for debugging
+                try:
+                    results_filename = f"automation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    with open(results_filename, 'w', encoding='utf-8') as f:
+                        json.dump(automation_results, f, indent=2, ensure_ascii=False)
+                    print(f"[{get_timestamp()}] Automation results saved to {results_filename}")
+                except Exception as e:
+                    print(f"[{get_timestamp()}] Error saving automation results: {str(e)}")
+                
+        except ImportError:
+            print(f"[{get_timestamp()}] Selenium automation not available - running without automation")
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in selenium automation: {str(e)}")
+
     # Save results to JSON if any available products found
     if available_products:
         print(f"[{get_timestamp()}] Available products found: {len(available_products)}")
