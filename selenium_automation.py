@@ -31,8 +31,18 @@ except ImportError:
             pass
 
 # Constants
-DEFAULT_TIMEOUT = 30
+DEFAULT_TIMEOUT = 15  # Reduced from 30s for faster operations
 SCREENSHOT_DIR = "screenshots"
+# Human-like timing ranges (in seconds) - optimized for speed while maintaining naturalness
+HUMAN_MIN_DELAY = 0.3
+HUMAN_MAX_DELAY = 1.2
+PAGE_LOAD_MIN_DELAY = 0.5
+PAGE_LOAD_MAX_DELAY = 2.0
+BETWEEN_PRODUCTS_MIN_DELAY = 0.8
+BETWEEN_PRODUCTS_MAX_DELAY = 1.8
+
+# Global driver instance for reuse (significantly faster than creating new driver each time)
+_global_driver = None
 BUY_BUTTON_SELECTORS = [
     "button[data-spm-click*='buy']",
     "button:contains('Buy Now')",
@@ -49,9 +59,21 @@ def get_timestamp() -> str:
     """Return current timestamp for file naming."""
     return datetime.now().strftime('%Y%m%d_%H%M%S')
 
+def human_delay(min_delay: float = HUMAN_MIN_DELAY, max_delay: float = HUMAN_MAX_DELAY) -> None:
+    """
+    Introduce human-like random delays to avoid bot detection.
+    
+    Args:
+        min_delay (float): Minimum delay in seconds
+        max_delay (float): Maximum delay in seconds
+    """
+    import random
+    delay = random.uniform(min_delay, max_delay)
+    time.sleep(delay)
+
 def setup_chrome_driver(headless: bool = True) -> Optional[webdriver.Chrome]:
     """
-    Set up Chrome WebDriver with appropriate options for automation.
+    Set up Chrome WebDriver optimized for speed and human-like behavior.
     
     Args:
         headless (bool): Whether to run in headless mode
@@ -67,32 +89,59 @@ def setup_chrome_driver(headless: bool = True) -> Optional[webdriver.Chrome]:
         options = ChromeOptions()
         
         if headless:
-            options.add_argument('--headless')
+            options.add_argument('--headless=new')  # Use new headless mode for better performance
         
-        # Security and compatibility options
+        # Performance optimizations for faster startup
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
-        options.add_argument('--disable-web-security')
-        options.add_argument('--allow-running-insecure-content')
+        options.add_argument('--disable-software-rasterizer')
+        options.add_argument('--disable-background-timer-throttling')
+        options.add_argument('--disable-backgrounding-occluded-windows')
+        options.add_argument('--disable-renderer-backgrounding')
         
-        # User agent to avoid detection
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        # Bot detection avoidance - more human-like browser
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
         
-        # Window size for consistent screenshots
-        options.add_argument('--window-size=1920,1080')
+        # Realistic user agent - randomly choose from common ones
+        import random
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ]
+        options.add_argument(f'--user-agent={random.choice(user_agents)}')
         
-        # Disable notifications and popups
+        # Realistic window size - vary slightly
+        width = random.randint(1366, 1920)
+        height = random.randint(768, 1080)
+        options.add_argument(f'--window-size={width},{height}')
+        
+        # Enhanced preferences for human-like behavior
         prefs = {
             "profile.default_content_setting_values": {
-                "notifications": 2
+                "notifications": 2,
+                "media_stream": 2,
+            },
+            "profile.managed_default_content_settings": {
+                "images": 2  # Don't load images for faster page loads
             }
         }
         options.add_experimental_option("prefs", prefs)
         
-        # Try to create driver
+        # Faster page loading
+        options.add_argument('--aggressive-cache-discard')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-plugins')
+        
+        # Try to create driver with faster timeout
         driver = webdriver.Chrome(options=options)
         driver.set_page_load_timeout(DEFAULT_TIMEOUT)
+        
+        # Execute script to hide webdriver property
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         print(f"[{datetime.now()}] Chrome WebDriver initialized successfully")
         return driver
@@ -100,6 +149,46 @@ def setup_chrome_driver(headless: bool = True) -> Optional[webdriver.Chrome]:
     except Exception as e:
         print(f"[{datetime.now()}] Failed to initialize Chrome WebDriver: {str(e)}")
         return None
+
+def get_or_create_driver(headless: bool = True, force_new: bool = False) -> Optional[webdriver.Chrome]:
+    """
+    Get existing driver or create new one for better performance.
+    
+    Args:
+        headless (bool): Whether to run in headless mode
+        force_new (bool): Force creation of new driver
+        
+    Returns:
+        webdriver.Chrome: WebDriver instance or None if setup fails
+    """
+    global _global_driver
+    
+    # Check if we can reuse existing driver
+    if not force_new and _global_driver is not None:
+        try:
+            # Test if driver is still alive
+            _global_driver.current_url
+            print(f"[{datetime.now()}] Reusing existing WebDriver for better performance")
+            return _global_driver
+        except Exception:
+            # Driver is dead, need to create new one
+            _global_driver = None
+    
+    # Create new driver
+    _global_driver = setup_chrome_driver(headless)
+    return _global_driver
+
+def cleanup_driver() -> None:
+    """Clean up the global driver instance."""
+    global _global_driver
+    if _global_driver is not None:
+        try:
+            _global_driver.quit()
+            print(f"[{datetime.now()}] Global WebDriver cleaned up successfully")
+        except Exception as e:
+            print(f"[{datetime.now()}] Error cleaning up WebDriver: {str(e)}")
+        finally:
+            _global_driver = None
 
 def ensure_screenshot_dir() -> str:
     """
@@ -181,7 +270,7 @@ def find_buy_button(driver: webdriver.Chrome) -> Optional[Any]:
     print(f"[{datetime.now()}] No buy button found on page")
     return None
 
-def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: str) -> bool:
+def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: str, debug_screenshots: bool = True) -> bool:
     """
     Attempt to purchase a product by clicking the buy button.
     
@@ -189,6 +278,7 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
         driver (webdriver.Chrome): WebDriver instance
         product_url (str): URL of the product page
         product_name (str): Name of the product for logging
+        debug_screenshots (bool): Whether to take debug screenshots
         
     Returns:
         bool: True if purchase attempt was successful
@@ -202,24 +292,27 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
         # Navigate to product page
         driver.get(product_url)
         
-        # Take initial screenshot
-        take_debug_screenshot(
-            driver, 
-            f"product_page_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
-            f"Initial product page for {product_name}"
-        )
+        # Take initial screenshot only if debug enabled
+        if debug_screenshots:
+            take_debug_screenshot(
+                driver, 
+                f"product_page_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
+                f"Initial product page for {product_name}"
+            )
         
-        # Wait for page to load
-        WebDriverWait(driver, DEFAULT_TIMEOUT).until(
+        # Wait for page to load with shorter timeout
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.TAG_NAME, "body"))
         )
         
-        time.sleep(2)  # Additional wait for dynamic content
+        # Human-like wait for dynamic content
+        human_delay(PAGE_LOAD_MIN_DELAY, PAGE_LOAD_MAX_DELAY)
         
         # Look for buy button
         buy_button = find_buy_button(driver)
         
         if not buy_button:
+            # Always take screenshot on failure for debugging
             take_debug_screenshot(
                 driver,
                 f"no_buy_button_{timestamp}_{product_name[:30].replace(' ', '_')}.png", 
@@ -227,19 +320,22 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
             )
             return False
         
-        # Scroll to button if needed
-        driver.execute_script("arguments[0].scrollIntoView(true);", buy_button)
-        time.sleep(1)
+        # Scroll to button with human-like behavior
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", buy_button)
+        human_delay()
         
-        # Take screenshot before clicking
-        take_debug_screenshot(
-            driver,
-            f"before_click_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
-            f"Before clicking buy button for {product_name}"
-        )
+        # Take screenshot before clicking only if debug enabled
+        if debug_screenshots:
+            take_debug_screenshot(
+                driver,
+                f"before_click_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
+                f"Before clicking buy button for {product_name}"
+            )
         
-        # Click the buy button
+        # Click the buy button with human-like interaction
         try:
+            # Add small delay before clicking (like a human would)
+            human_delay(0.2, 0.5)
             buy_button.click()
             print(f"[{datetime.now()}] Successfully clicked buy button for {product_name}")
         except Exception as e:
@@ -247,14 +343,16 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
             driver.execute_script("arguments[0].click();", buy_button)
             print(f"[{datetime.now()}] Used JavaScript click for buy button: {product_name}")
         
-        time.sleep(3)  # Wait for page response
+        # Human-like wait for page response - shorter but variable
+        human_delay(1.0, 2.5)
         
-        # Take screenshot after clicking
-        take_debug_screenshot(
-            driver,
-            f"after_click_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
-            f"After clicking buy button for {product_name}"
-        )
+        # Take screenshot after clicking only if debug enabled
+        if debug_screenshots:
+            take_debug_screenshot(
+                driver,
+                f"after_click_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
+                f"After clicking buy button for {product_name}"
+            )
         
         # Check if we were redirected to cart or checkout
         current_url = driver.current_url.lower()
@@ -262,11 +360,12 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
         
         if any(indicator in current_url for indicator in success_indicators):
             print(f"[{datetime.now()}] Purchase flow initiated for {product_name} - URL: {current_url}")
-            take_debug_screenshot(
-                driver,
-                f"purchase_success_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
-                f"Purchase flow initiated for {product_name}"
-            )
+            if debug_screenshots:
+                take_debug_screenshot(
+                    driver,
+                    f"purchase_success_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
+                    f"Purchase flow initiated for {product_name}"
+                )
             return True
         else:
             print(f"[{datetime.now()}] Purchase button clicked but no clear redirect for {product_name}")
@@ -274,6 +373,7 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
             
     except TimeoutException:
         print(f"[{datetime.now()}] Timeout while loading product page: {product_name}")
+        # Always take screenshot on timeout for debugging
         take_debug_screenshot(
             driver,
             f"timeout_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
@@ -283,6 +383,7 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
         
     except Exception as e:
         print(f"[{datetime.now()}] Error attempting purchase for {product_name}: {str(e)}")
+        # Always take screenshot on error for debugging
         take_debug_screenshot(
             driver,
             f"error_{timestamp}_{product_name[:30].replace(' ', '_')}.png",
@@ -290,13 +391,14 @@ def attempt_purchase(driver: webdriver.Chrome, product_url: str, product_name: s
         )
         return False
 
-def automate_purchases(available_products: List[Dict[str, Any]], headless: bool = True) -> Dict[str, Any]:
+def automate_purchases(available_products: List[Dict[str, Any]], headless: bool = True, debug_screenshots: bool = False) -> Dict[str, Any]:
     """
-    Automate purchases for available products.
+    Automate purchases for available products with optimized performance.
     
     Args:
         available_products (List[Dict]): List of available products to purchase
         headless (bool): Whether to run browser in headless mode
+        debug_screenshots (bool): Whether to take debug screenshots (impacts performance)
         
     Returns:
         Dict: Results summary with success/failure counts and details
@@ -322,9 +424,10 @@ def automate_purchases(available_products: List[Dict[str, Any]], headless: bool 
             "failed": 0
         }
     
-    print(f"[{datetime.now()}] Starting purchase automation for {len(available_products)} products")
+    print(f"[{datetime.now()}] Starting optimized purchase automation for {len(available_products)} products")
     
-    driver = setup_chrome_driver(headless)
+    # Use optimized driver management for faster setup
+    driver = get_or_create_driver(headless)
     if not driver:
         return {
             "selenium_available": True,
@@ -361,7 +464,7 @@ def automate_purchases(available_products: List[Dict[str, Any]], headless: bool 
             
             results["attempted"] += 1
             
-            success = attempt_purchase(driver, product_url, product_name)
+            success = attempt_purchase(driver, product_url, product_name, debug_screenshots)
             
             if success:
                 results["successful"] += 1
@@ -379,16 +482,14 @@ def automate_purchases(available_products: List[Dict[str, Any]], headless: bool 
                     "url": product_url
                 })
             
-            # Small delay between attempts
-            time.sleep(2)
+            # Human-like delay between product attempts
+            if results["attempted"] < len(available_products):  # Don't delay after last product
+                human_delay(BETWEEN_PRODUCTS_MIN_DELAY, BETWEEN_PRODUCTS_MAX_DELAY)
     
     finally:
-        # Always clean up the driver
-        try:
-            driver.quit()
-            print(f"[{datetime.now()}] WebDriver closed successfully")
-        except Exception as e:
-            print(f"[{datetime.now()}] Error closing WebDriver: {str(e)}")
+        # Note: We keep the driver alive for potential reuse
+        # It will be cleaned up when the process ends or explicitly called
+        pass
     
     print(f"[{datetime.now()}] Purchase automation completed:")
     print(f"[{datetime.now()}] Total: {results['total_products']}, Attempted: {results['attempted']}, Successful: {results['successful']}, Failed: {results['failed']}")

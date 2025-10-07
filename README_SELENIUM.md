@@ -38,6 +38,22 @@ All screenshots are timestamped and include product names for easy identificatio
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DISABLE_SELENIUM_AUTOMATION` | Set to `true` to disable automation | `false` |
+| `SELENIUM_DEBUG_SCREENSHOTS` | Set to `true` to enable full debug screenshots | `false` |
+
+### Performance Optimizations
+
+The automation is optimized for **minimal setup time** and **human-like behavior**:
+
+- **Driver Reuse**: WebDriver instances are reused across product attempts for faster execution
+- **Reduced Timeouts**: Page load timeout reduced from 30s to 15s
+- **Smart Screenshots**: Only takes screenshots on failures unless debug mode is enabled
+- **Human-like Delays**: Randomized delays (0.3-1.2s) instead of fixed waits
+- **Bot Detection Avoidance**: 
+  - Randomized user agents and window sizes
+  - Disabled automation detection flags
+  - Smooth scrolling and natural interaction patterns
+- **Image Loading Disabled**: Faster page loads by not loading images
+- **Optimized Chrome Flags**: Performance-focused browser configuration
 
 ### GitHub Actions Secrets/Variables
 - All existing secrets (TELEGRAM_BOT_TOKEN, etc.) work as before

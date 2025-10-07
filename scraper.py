@@ -199,8 +199,9 @@ def main():
             if disable_automation:
                 print(f"[{get_timestamp()}] Selenium automation disabled via environment variable")
             else:
-                # Run automation in headless mode for CI/production
-                automation_results = automate_purchases(available_products, headless=True)
+                # Run automation optimized for speed - only take screenshots on errors
+                debug_screenshots = os.environ.get("SELENIUM_DEBUG_SCREENSHOTS", "").lower() in ("true", "1", "yes")
+                automation_results = automate_purchases(available_products, headless=True, debug_screenshots=debug_screenshots)
                 
                 print(f"[{get_timestamp()}] Automation results: {automation_results['successful']} successful, {automation_results['failed']} failed out of {automation_results['attempted']} attempted")
                 
