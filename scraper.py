@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-Refactored scraper module (simplified JSON fetch).
-
-This version fetches the Lazada shop AJAX JSON directly (no browser automation)
-and extracts product information from mods.listItems. Keeps the same
-external behaviour (notification service attempt, saving available products).
-"""
 
 import os
 import json
@@ -35,13 +28,6 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.lazada.sg/pokemon-store-online-singapore/",
 }
-
-DEFAULT_SHOP_AJAX_URL = (
-    "https://www.lazada.sg/pokemon-store-online-singapore/"
-    "?ajax=true&from=wangpu&hideSectionHeader=true&isFirstRequest=true"
-    "&page=1&q=All-Products&sc=KVUG&search_scenario=store&service=store_sections"
-    "&shopId=2056827&shop_category_ids=762252&spm=a2o42.10453684.0.0.2db85edfif66F6&src=store_sections"
-)
 
 def get_timestamp() -> str:
     """Return current timestamp in ISO format."""
@@ -154,9 +140,9 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     available = [p for p in products if p.get("inStock") is True]
     return available
 
-def main(shop_ajax_url: Optional[str] = None):
+def main():
     print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
-    url = shop_ajax_url or os.environ.get("SCRAPING_URL") or DEFAULT_SHOP_AJAX_URL
+    url = os.environ.get("SCRAPING_URL")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
     payload = fetch_json(url)
