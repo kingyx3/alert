@@ -83,6 +83,9 @@ def fetch_json(url: str,
             except json.JSONDecodeError:
                 # Lazada sometimes returns HTML containing a JSON blob or anti-bot page
                 print(f"[{_now()}] Failed to parse JSON on attempt {attempt+1}.")
+                # Print the response content for debugging (truncate if too long)
+                response_preview = text[:1000] + "..." if len(text) > 1000 else text
+                print(f"[{_now()}] Response content: {response_preview}")
                 # Attempt to locate JSON substring as a last resort
                 start = text.find('{"mods"')
                 if start != -1:
