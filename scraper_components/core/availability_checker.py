@@ -7,7 +7,7 @@ Handles availability detection, quantity checking, and product status validation
 
 from typing import Tuple, Optional
 
-from ..config.constants import BUY_INDICATORS, QUANTITY_SELECTORS
+from ..config.constants import BUY_INDICATORS, QUANTITY_SELECTORS, BUY_NOW_SELECTORS
 from ..utils.helpers import get_timestamp, safe_get_attribute, normalize_url
 
 try:
@@ -131,4 +131,99 @@ class AvailabilityChecker:
         """Extract price from current page using ProductExtractor if available."""
         if self.product_extractor:
             return self.product_extractor.extract_price_from_page()
+        return None
+    
+    def click_buy_now_button(self, product_url: str) -> Tuple[bool, str]:
+        """
+        Navigate to product page and attempt to click "Buy Now" button.
+        Returns (success, status_message)
+        """
+        try:
+            # Navigate to the product page
+            normalized_url = self._normalize_product_url(product_url)
+            if not self._is_valid_url(normalized_url):
+                return False, "Invalid URL"
+
+            print(f"[{get_timestamp()}] Navigating to product page for purchase: {normalized_url}")
+            self.driver.get(normalized_url)
+
+            # Take screenshot before attempting purchase
+            if self.webdriver_manager:
+                print(f"[{get_timestamp()}] Taking screenshot before purchase attempt...")
+                self.webdriver_manager.take_screenshot("before_purchase", normalized_url)
+
+            # Wait for page to load
+            if not self.page_validator.wait_for_page_ready(normalized_url):
+                print(f"[{get_timestamp()}] Page failed to load for purchase: {normalized_url}")
+                return False, "Page failed to load"
+
+            # Find and click buy now button
+            buy_button = self._find_buy_now_button()
+            if not buy_button:
+                print(f"[{get_timestamp()}] No buy now button found on page: {normalized_url}")
+                return False, "No buy now button found"
+
+            # Click the button
+            print(f"[{get_timestamp()}] Clicking buy now button...")
+            buy_button.click()
+            
+            # Take screenshot after clicking buy button
+            if self.webdriver_manager:
+                print(f"[{get_timestamp()}] Taking screenshot after purchase attempt...")
+                self.webdriver_manager.take_screenshot("after_purchase_click", normalized_url)
+
+            print(f"[{get_timestamp()}] Successfully clicked buy now button for: {normalized_url}")
+            return True, "Buy now button clicked successfully"
+
+        except Exception as e:
+            error_msg = f"Error clicking buy now button: {str(e)}"
+            print(f"[{get_timestamp()}] {error_msg}")
+            return False, error_msg
+    
+    def _find_buy_now_button(self):
+        """Find the buy now button using various selectors."""
+        if not SELENIUM_AVAILABLE:
+            return None
+            
+        # Try CSS selectors first (excluding :contains pseudo-selector for now)
+        css_selectors = [
+            '[data-qa-locator*="buy-now"]',
+            '[data-testid*="buy-now"]',
+            '.buy-now-button',
+            '.buy-now',
+            'button[class*="buy-now"]',
+            'a[class*="buy-now"]',
+            '[data-qa-locator*="add-to-cart"]',
+            '[data-testid*="add-to-cart"]',
+            '.add-to-cart-button',
+            '.add-to-cart',
+            'button[class*="add-to-cart"]',
+            'a[class*="add-to-cart"]'
+        ]
+        
+        for selector in css_selectors:
+            try:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                if elements:
+                    # Return the first visible and enabled element
+                    for element in elements:
+                        if element.is_displayed() and element.is_enabled():
+                            print(f"[{get_timestamp()}] Found buy button with selector: {selector}")
+                            return element
+            except (NoSuchElementException, Exception) as e:
+                continue
+        
+        # Try searching by text content as fallback
+        try:
+            # Look for buttons with "buy now" text (case insensitive)
+            buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            for button in buttons:
+                button_text = (button.text or "").lower()
+                if any(phrase in button_text for phrase in ["buy now", "add to cart", "purchase"]):
+                    if button.is_displayed() and button.is_enabled():
+                        print(f"[{get_timestamp()}] Found buy button by text: {button.text}")
+                        return button
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error searching for button by text: {str(e)}")
+        
         return None
