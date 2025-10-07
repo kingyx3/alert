@@ -10,6 +10,10 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 
+# Constants
+TELEGRAM_MESSAGE_MAX_LENGTH = 4000
+TIMEZONE_OFFSET_HOURS = 8
+
 try:
     import telebot
     TELEGRAM_AVAILABLE = True
@@ -65,7 +69,7 @@ class NotificationService:
         Format the scraped products into a single text message
         
         Args:
-            products (List[Dict]): List of product dictionaries from scraper2 format
+            products (List[Dict]): List of product dictionaries
             
         Returns:
             str: Formatted text string
@@ -76,7 +80,7 @@ class NotificationService:
         # Sort products alphabetically by name
         sorted_products = sorted(products, key=lambda x: x.get('name', '').lower())
         
-        header = f"🛒 Store Alert - {(datetime.now()+timedelta(hours=8)).strftime('%Y-%m-%d %H:%M')}\n"
+        header = f"🛒 Store Alert - {(datetime.now() + timedelta(hours=TIMEZONE_OFFSET_HOURS)).strftime('%Y-%m-%d %H:%M')}\n"
         header += f"📦 Found {len(sorted_products)} available products:\n\n"
         
         product_lines = []
@@ -116,9 +120,9 @@ class NotificationService:
         
         try:
             # Split long messages if needed (Telegram has a 4096 character limit)
-            if len(message) > 4000:
-                # Split message into chunks
-                chunks = [message[i:i+4000] for i in range(0, len(message), 4000)]
+            if len(message) > TELEGRAM_MESSAGE_MAX_LENGTH:
+                chunks = [message[i:i+TELEGRAM_MESSAGE_MAX_LENGTH] 
+                         for i in range(0, len(message), TELEGRAM_MESSAGE_MAX_LENGTH)]
                 for i, chunk in enumerate(chunks):
                     if i == 0:
                         self.telegram_bot.send_message(self.telegram_channel_id, chunk)
@@ -153,14 +157,7 @@ class NotificationService:
             message = self.format_products_text(products)
             
             # Send to configured channel
-            success = self.send_to_telegram_channel(message)
-            
-            if success:
-                print(f"[{datetime.now()}] Product notification sent successfully to channel")
-            else:
-                print(f"[{datetime.now()}] Failed to send product notification")
-            
-            return success
+            return self.send_to_telegram_channel(message)
             
         except Exception as e:
             print(f"[{datetime.now()}] Error in notification workflow: {str(e)}")
