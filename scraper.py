@@ -13,10 +13,11 @@ import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-# Inline helper functions (replacing scraper_components imports)
-def get_timestamp() -> str:
-    """Return current timestamp in ISO format."""
-    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+# Constants
+DEFAULT_RETRIES = 3
+DEFAULT_BACKOFF = 1.0
+DEFAULT_TIMEOUT = 10
+JSON_CONTENT_PREVIEW_LENGTH = 1000
 
 # Optional: use requests if available, otherwise fallback to urllib
 try:
@@ -32,11 +33,9 @@ DEFAULT_HEADERS = {
                   "Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "Accept-Language": "en-US,en;q=0.9",
-    # Keep referer as Lazada shop root if useful
     "Referer": "https://www.lazada.sg/pokemon-store-online-singapore/",
 }
 
-# Default Lazada AJAX URL (use the one you provided)
 DEFAULT_SHOP_AJAX_URL = (
     "https://www.lazada.sg/pokemon-store-online-singapore/"
     "?ajax=true&from=wangpu&hideSectionHeader=true&isFirstRequest=true"
@@ -44,19 +43,15 @@ DEFAULT_SHOP_AJAX_URL = (
     "&shopId=2056827&shop_category_ids=762252&spm=a2o42.10453684.0.0.2db85edfif66F6&src=store_sections"
 )
 
-def _now() -> str:
-    """Backward compatibility function."""
-    return get_timestamp()
-
-def _safe_get_attr(elem: Dict[str, Any], attr: str) -> Optional[Any]:
-    """Simple safe getter for dictionaries."""
-    return elem.get(attr)
+def get_timestamp() -> str:
+    """Return current timestamp in ISO format."""
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def fetch_json(url: str,
                headers: Optional[Dict[str, str]] = None,
-               retries: int = 3,
-               backoff: float = 1.0,
-               timeout: int = 10) -> Optional[Dict[str, Any]]:
+               retries: int = DEFAULT_RETRIES,
+               backoff: float = DEFAULT_BACKOFF,
+               timeout: int = DEFAULT_TIMEOUT) -> Optional[Dict[str, Any]]:
     """
     Fetch JSON from `url` with retries. Returns parsed JSON dict or None.
     Uses requests if available, otherwise urllib.
@@ -70,7 +65,7 @@ def fetch_json(url: str,
                 text = resp.text
                 status = resp.status_code
                 if status != 200:
-                    print(f"[{_now()}] HTTP {status} from {url}")
+                    print(f"[{get_timestamp()}] HTTP {status} from {url}")
                     raise RuntimeError(f"HTTP {status}")
             else:
                 req = _urllib_request.Request(url, headers=headers)
@@ -82,25 +77,27 @@ def fetch_json(url: str,
                 return data
             except json.JSONDecodeError:
                 # Lazada sometimes returns HTML containing a JSON blob or anti-bot page
-                print(f"[{_now()}] Failed to parse JSON on attempt {attempt+1}.")
+                print(f"[{get_timestamp()}] Failed to parse JSON on attempt {attempt+1}.")
                 # Print the response content for debugging (truncate if too long)
-                response_preview = text[:1000] + "..." if len(text) > 1000 else text
-                print(f"[{_now()}] Response content: {response_preview}")
+                response_preview = (text[:JSON_CONTENT_PREVIEW_LENGTH] + "..." 
+                                 if len(text) > JSON_CONTENT_PREVIEW_LENGTH else text)
+                print(f"[{get_timestamp()}] Response content: {response_preview}")
                 # Attempt to locate JSON substring as a last resort
-                start = text.find('{"mods"')
+                json_start_pattern = '{"mods"'
+                start = text.find(json_start_pattern)
                 if start != -1:
                     try:
                         data = json.loads(text[start:])
                         return data
-                    except Exception:
+                    except json.JSONDecodeError:
                         pass
                 raise
         except Exception as e:
             attempt += 1
             wait = backoff * (2 ** (attempt - 1))
-            print(f"[{_now()}] Fetch attempt {attempt} failed: {e}. Retrying in {wait:.1f}s...")
+            print(f"[{get_timestamp()}] Fetch attempt {attempt} failed: {e}. Retrying in {wait:.1f}s...")
             time.sleep(wait)
-    print(f"[{_now()}] All {retries} fetch attempts failed for {url}")
+    print(f"[{get_timestamp()}] All {retries} fetch attempts failed for {url}")
     return None
 
 def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -111,24 +108,23 @@ def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any
     products: List[Dict[str, Any]] = []
     mods = payload.get("mods") or payload.get("modsData") or {}
     list_items = mods.get("listItems") or []
+    
     if not isinstance(list_items, list):
-        # Sometimes Lazada uses another key; try to find list-like structures
-        list_items = []
+        return products
 
     for item in list_items:
         try:
-            name = item.get("name") or item.get("title") or ""
-            price_raw = item.get("price")  # often string or numeric
-            # normalize price to float when possible
+            # Normalize price to float when possible
+            price_raw = item.get("price")
             price = None
-            try:
-                if price_raw is not None and price_raw != "":
+            if price_raw is not None and price_raw != "":
+                try:
                     price = float(price_raw)
-            except Exception:
-                price = None
+                except (ValueError, TypeError):
+                    price = None
 
             product = {
-                "name": name,
+                "name": item.get("name") or item.get("title") or "",
                 "price": price,
                 "priceShow": item.get("priceShow") or item.get("originalPriceShow") or "",
                 "inStock": bool(item.get("inStock")),
@@ -141,11 +137,11 @@ def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any
                 "sku": item.get("sku"),
                 "sellerName": item.get("sellerName"),
                 "sellerId": item.get("sellerId"),
-                "raw": item,  # keep raw item for debugging if needed
+                "raw": item,
             }
             products.append(product)
         except Exception as e:
-            print(f"[{_now()}] Skipping an item due to parse error: {e}")
+            print(f"[{get_timestamp()}] Skipping an item due to parse error: {e}")
 
     return products
 
@@ -159,66 +155,66 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     return available
 
 def main(shop_ajax_url: Optional[str] = None):
-    print(f"[{_now()}] Scraper starting (simplified JSON fetch)...")
+    print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
     url = shop_ajax_url or os.environ.get("SCRAPING_URL") or DEFAULT_SHOP_AJAX_URL
-    print(f"[{_now()}] Fetching: {url}")
+    print(f"[{get_timestamp()}] Fetching: {url}")
 
     payload = fetch_json(url)
     if payload is None:
-        print(f"[{_now()}] Failed to fetch or parse JSON payload. Exiting.")
+        print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
         return
 
     products = extract_products_from_payload(payload)
     if not products:
-        print(f"[{_now()}] No products found in payload. The site may have returned an anti-bot page or different format.")
+        print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
         # Save the raw payload for inspection
         try:
             debug_fn = f"raw_payload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             with open(debug_fn, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
-            print(f"[{_now()}] Raw payload saved to {debug_fn} for debugging.")
+            print(f"[{get_timestamp()}] Raw payload saved to {debug_fn} for debugging.")
         except Exception as e:
-            print(f"[{_now()}] Failed to save raw payload: {e}")
+            print(f"[{get_timestamp()}] Failed to save raw payload: {e}")
         return
 
     available_products = filter_available_products(products)
 
     # Log total and available products count before notifications
-    print(f"[{_now()}] Total products found: {len(products)}")
-    print(f"[{_now()}] Available products: {len(available_products)}")
+    print(f"[{get_timestamp()}] Total products found: {len(products)}")
+    print(f"[{get_timestamp()}] Available products: {len(available_products)}")
 
     # Try to send notifications if notification_service module exists
     try:
         from notification_service import create_notification_service  # type: ignore
         notification_service = create_notification_service()
         if available_products:
-            print(f"[{_now()}] Found {len(available_products)} available products")
+            print(f"[{get_timestamp()}] Found {len(available_products)} available products")
             success = notification_service.notify_products(available_products)
             if success:
-                print(f"[{_now()}] Product notifications sent successfully")
+                print(f"[{get_timestamp()}] Product notifications sent successfully")
             else:
-                print(f"[{_now()}] Failed to send product notifications")
+                print(f"[{get_timestamp()}] Failed to send product notifications")
         else:
-            print(f"[{_now()}] No available products found - no notifications sent")
+            print(f"[{get_timestamp()}] No available products found - no notifications sent")
     except ImportError:
-        print(f"[{_now()}] Notification service not available - running without notifications")
+        print(f"[{get_timestamp()}] Notification service not available - running without notifications")
     except Exception as e:
-        print(f"[{_now()}] Error in notification service: {str(e)}")
+        print(f"[{get_timestamp()}] Error in notification service: {str(e)}")
 
     # Save results to JSON if any available products found
     if available_products:
-        print('Available products:', len(available_products))
+        print(f"[{get_timestamp()}] Available products found: {len(available_products)}")
         filename = f"available_products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(available_products, f, indent=2, ensure_ascii=False)
-            print(f"[{_now()}] Available products saved to {filename}")
+            print(f"[{get_timestamp()}] Available products saved to {filename}")
         except Exception as e:
-            print(f"[{_now()}] Error saving results: {str(e)}")
+            print(f"[{get_timestamp()}] Error saving results: {str(e)}")
     else:
-        print(f"[{_now()}] No available products found.")
+        print(f"[{get_timestamp()}] No available products found.")
 
-    print(f"[{_now()}] Scraper completed.")
+    print(f"[{get_timestamp()}] Scraper completed.")
 
 if __name__ == "__main__":
     main()
