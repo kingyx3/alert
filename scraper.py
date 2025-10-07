@@ -19,7 +19,6 @@ DEFAULT_BACKOFF = 1.0
 DEFAULT_TIMEOUT = 10
 JSON_CONTENT_PREVIEW_LENGTH = 1000
 
-# Inline helper functions (replacing scraper_components imports)
 # Optional: use requests if available, otherwise fallback to urllib
 try:
     import requests  # type: ignore
