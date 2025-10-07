@@ -11,5 +11,7 @@ config.py
 htmlcov/
 screenshots/
 scraper_results_*.json
-demo_new_flow.py
-test_buy_now_flow.py
+purchase_results_*.json
+combined_results_*.json
+test_purchase_workflow.py
+scraper_with_purchase_integration.py

@@ -39,39 +39,6 @@ def main():
 
     browser_scraper = BrowserScraper()
     available_products = browser_scraper.scrape_products()
-    
-    # New flow: attempt to purchase available products by clicking "Buy Now" buttons
-    purchase_results = []
-    if available_products and browser_scraper.availability_checker:
-        print(f"[{_now()}] Found {len(available_products)} available products. Attempting to purchase...")
-        
-        for product in available_products:
-            product_url = product.get('url')
-            product_name = product.get('title', 'Unknown Product')
-            
-            if product_url:
-                print(f"[{_now()}] Attempting to purchase: {product_name}")
-                success, message = browser_scraper.availability_checker.click_buy_now_button(product_url)
-                
-                purchase_result = {
-                    'product': product_name,
-                    'url': product_url,
-                    'purchase_success': success,
-                    'purchase_message': message,
-                    'timestamp': _now()
-                }
-                purchase_results.append(purchase_result)
-                
-                if success:
-                    print(f"[{_now()}] Successfully initiated purchase for: {product_name}")
-                else:
-                    print(f"[{_now()}] Failed to purchase {product_name}: {message}")
-            else:
-                print(f"[{_now()}] No URL available for product: {product_name}")
-    
-    # Clean up browser resources
-    if browser_scraper.webdriver_manager:
-        browser_scraper.webdriver_manager.quit_driver()
 
     # Try to send notifications if notification_service module exists
     try:
@@ -94,38 +61,16 @@ def main():
     # Save results to JSON if any available products found
     if available_products:
         print('Available products:', len(available_products))
-        
-        # Combine product and purchase information
-        results_data = {
-            'timestamp': datetime.now().isoformat(),
-            'available_products': available_products,
-            'purchase_attempts': purchase_results,
-            'summary': {
-                'total_available': len(available_products),
-                'purchase_attempts': len(purchase_results),
-                'successful_purchases': sum(1 for r in purchase_results if r.get('purchase_success', False))
-            }
-        }
-        
-        filename = f"scraper_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"available_products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(results_data, f, indent=2, ensure_ascii=False)
-            print(f"[{_now()}] Scraper results (including purchase attempts) saved to {filename}")
+                json.dump(available_products, f, indent=2, ensure_ascii=False)
+            print(f"[{_now()}] Available products saved to {filename}")
         except Exception as e:
             print(f"[{_now()}] Error saving results: {str(e)}")
     else:
         print(f"[{_now()}] No available products found.")
 
-    # Print purchase summary
-    if purchase_results:
-        successful_purchases = sum(1 for r in purchase_results if r.get('purchase_success', False))
-        print(f"\n[{_now()}] PURCHASE SUMMARY:")
-        print(f"  Total products available: {len(available_products)}")
-        print(f"  Purchase attempts made: {len(purchase_results)}")
-        print(f"  Successful purchases: {successful_purchases}")
-        print(f"  Failed purchases: {len(purchase_results) - successful_purchases}")
-    
     print(f"[{_now()}] Scraper completed.")
 
 
