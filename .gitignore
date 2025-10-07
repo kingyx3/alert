@@ -10,3 +10,8 @@ config.py
 .coverage
 htmlcov/
 screenshots/
+scraper_results_*.json
+purchase_results_*.json
+combined_results_*.json
+test_purchase_workflow.py
+scraper_with_purchase_integration.py

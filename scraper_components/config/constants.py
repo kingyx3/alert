@@ -63,6 +63,27 @@ QUANTITY_SELECTORS = [
 # ---------- Content Indicators ----------
 BUY_INDICATORS = ['buy now']  # used in availability detection
 
+# ---------- Buy Now Button Selectors ----------
+BUY_NOW_SELECTORS = [
+    'button:contains("Buy now")',
+    'button:contains("buy now")',
+    'button:contains("BUY NOW")',
+    '[data-qa-locator*="buy-now"]',
+    '[data-testid*="buy-now"]',
+    '.buy-now-button',
+    '.buy-now',
+    'button[class*="buy-now"]',
+    'a[class*="buy-now"]',
+    'button:contains("Add to cart")',
+    'button:contains("ADD TO CART")',
+    '[data-qa-locator*="add-to-cart"]',
+    '[data-testid*="add-to-cart"]',
+    '.add-to-cart-button',
+    '.add-to-cart',
+    'button[class*="add-to-cart"]',
+    'a[class*="add-to-cart"]'
+]
+
 CRITICAL_ERROR_INDICATORS = [
     'page not found', '404 error', 'server error', '500 error',
     'network error', 'connection failed',
