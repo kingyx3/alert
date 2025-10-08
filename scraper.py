@@ -142,31 +142,76 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
 
 def main():
     print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
+    
+    # Get URLs from environment variables
     url = os.environ.get("SCRAPING_URL")
-    print(f"[{get_timestamp()}] Fetching: {url}")
-
-    payload = fetch_json(url)
-    if payload is None:
-        print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
+    intl_url = os.environ.get("SCRAPING_URL_INTL_ETB")
+    
+    all_products = []
+    
+    # Scrape from primary URL
+    if url:
+        print(f"[{get_timestamp()}] Fetching from primary URL: {url}")
+        payload = fetch_json(url)
+        if payload is not None:
+            products = extract_products_from_payload(payload)
+            if products:
+                # Mark products with source
+                for product in products:
+                    product["source"] = "primary"
+                all_products.extend(products)
+                print(f"[{get_timestamp()}] Found {len(products)} products from primary source")
+            else:
+                print(f"[{get_timestamp()}] No products found in primary payload.")
+                # Save the raw payload for inspection
+                try:
+                    debug_fn = f"raw_payload_primary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    with open(debug_fn, "w", encoding="utf-8") as f:
+                        json.dump(payload, f, indent=2, ensure_ascii=False)
+                    print(f"[{get_timestamp()}] Primary raw payload saved to {debug_fn} for debugging.")
+                except Exception as e:
+                    print(f"[{get_timestamp()}] Failed to save primary raw payload: {e}")
+        else:
+            print(f"[{get_timestamp()}] Failed to fetch or parse primary JSON payload.")
+    else:
+        print(f"[{get_timestamp()}] SCRAPING_URL not set, skipping primary source")
+    
+    # Scrape from international ETB URL
+    if intl_url:
+        print(f"[{get_timestamp()}] Fetching from INTL ETB URL: {intl_url}")
+        intl_payload = fetch_json(intl_url)
+        if intl_payload is not None:
+            intl_products = extract_products_from_payload(intl_payload)
+            if intl_products:
+                # Mark products with source
+                for product in intl_products:
+                    product["source"] = "intl_etb"
+                all_products.extend(intl_products)
+                print(f"[{get_timestamp()}] Found {len(intl_products)} products from INTL ETB source")
+            else:
+                print(f"[{get_timestamp()}] No products found in INTL ETB payload.")
+                # Save the raw payload for inspection
+                try:
+                    debug_fn = f"raw_payload_intl_etb_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                    with open(debug_fn, "w", encoding="utf-8") as f:
+                        json.dump(intl_payload, f, indent=2, ensure_ascii=False)
+                    print(f"[{get_timestamp()}] INTL ETB raw payload saved to {debug_fn} for debugging.")
+                except Exception as e:
+                    print(f"[{get_timestamp()}] Failed to save INTL ETB raw payload: {e}")
+        else:
+            print(f"[{get_timestamp()}] Failed to fetch or parse INTL ETB JSON payload.")
+    else:
+        print(f"[{get_timestamp()}] SCRAPING_URL_INTL_ETB not set, skipping INTL ETB source")
+    
+    # Check if we have any products at all
+    if not all_products:
+        print(f"[{get_timestamp()}] No products found from any source. Exiting.")
         return
 
-    products = extract_products_from_payload(payload)
-    if not products:
-        print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
-        # Save the raw payload for inspection
-        try:
-            debug_fn = f"raw_payload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            with open(debug_fn, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, ensure_ascii=False)
-            print(f"[{get_timestamp()}] Raw payload saved to {debug_fn} for debugging.")
-        except Exception as e:
-            print(f"[{get_timestamp()}] Failed to save raw payload: {e}")
-        return
-
-    available_products = filter_available_products(products)
+    available_products = filter_available_products(all_products)
 
     # Log total and available products count before notifications
-    print(f"[{get_timestamp()}] Total products found: {len(products)}")
+    print(f"[{get_timestamp()}] Total products found: {len(all_products)}")
     print(f"[{get_timestamp()}] Available products: {len(available_products)}")
 
     # Try to send notifications if notification_service module exists

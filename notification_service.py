@@ -77,30 +77,54 @@ class NotificationService:
         if not products:
             return "🚫 No available products found at this time."
         
-        # Sort products alphabetically by name
-        sorted_products = sorted(products, key=lambda x: x.get('name', '').lower())
+        # Group products by source and sort alphabetically by name within each group
+        sources = {}
+        for product in products:
+            source = product.get('source', 'unknown')
+            if source not in sources:
+                sources[source] = []
+            sources[source].append(product)
+        
+        # Sort products within each source
+        for source in sources:
+            sources[source] = sorted(sources[source], key=lambda x: x.get('name', '').lower())
         
         header = f"🛒 Store Alert - {(datetime.now() + timedelta(hours=TIMEZONE_OFFSET_HOURS)).strftime('%Y-%m-%d %H:%M')}\n"
-        header += f"📦 Found {len(sorted_products)} available products:\n\n"
+        header += f"📦 Found {len(products)} available products from {len(sources)} source(s):\n\n"
         
         product_lines = []
-        for idx, product in enumerate(sorted_products, 1):
-            # Use scraper2 field names
-            name = product.get('name', 'Unknown Product')
-            url = product.get('url', '')
+        idx = 1
+        
+        for source, source_products in sources.items():
+            # Add source header
+            source_emoji = "🏪" if source == "primary" else "🌐" if source == "intl_etb" else "📍"
+            source_name = "Primary Store" if source == "primary" else "International ETB" if source == "intl_etb" else source.title()
+            product_lines.append(f"{source_emoji} **{source_name}** ({len(source_products)} products):")
             
-            # Get price information - try priceShow first, then calculate from price
-            price_show = product.get('priceShow', 'N/A')
-            if not price_show and 'price' in product and product['price'] is not None:
-                price_show = f"${product['price']:.2f}"
+            for product in source_products:
+                # Use scraper2 field names
+                name = product.get('name', 'Unknown Product')
+                url = product.get('url', '')
+                
+                # Get price information - try priceShow first, then calculate from price
+                price_show = product.get('priceShow', 'N/A')
+                if not price_show and 'price' in product and product['price'] is not None:
+                    price_show = f"${product['price']:.2f}"
+                
+                # Get sold count information
+                sold = product.get('sold', '')
+                sold_text = f' - {sold}' if sold else ''
+                
+                # Get rating information
+                rating = product.get('rating')
+                rating_text = f' ⭐{rating}' if rating else ''
+                
+                product_line = f"{idx}. 🎯 {name} ({price_show}){sold_text}{rating_text}\n"
+                product_line += f"   🔗 {url}\n"
+                product_lines.append(product_line)
+                idx += 1
             
-            # Get sold count information
-            sold = product.get('sold', '')
-            sold_text = f' - {sold}' if sold else ''
-            
-            product_line = f"{idx}. 🎯 {name} ({price_show}){sold_text}\n"
-            product_line += f"   🔗 {url}\n"
-            product_lines.append(product_line)
+            product_lines.append("")  # Add space between sources
         
         return header + "\n".join(product_lines)
     

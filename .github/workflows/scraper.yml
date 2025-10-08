@@ -34,5 +34,6 @@ jobs:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
         SCRAPING_URL: ${{ inputs.scraping_url || vars.SCRAPING_URL }}
+        SCRAPING_URL_INTL_ETB: ${{ vars.SCRAPING_URL_INTL_ETB }}
       run: |
         python scraper.py
