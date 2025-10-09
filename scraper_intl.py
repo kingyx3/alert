@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+"""
+Enhanced International Scraper with Anti-Bot Detection Measures
+
+This scraper includes comprehensive anti-bot detection workarounds:
+- Rotates between 5 realistic user agents
+- Maintains session state with cookies
+- Adds human-like delays and randomized backoff
+- Simulates browser navigation patterns (referrer -> target)
+- Detects and adapts to bot blocking responses
+- Uses modern browser headers (sec-ch-ua, Sec-Fetch-*, etc.)
+
+The key improvement addresses the issue where clicking hyperlinks triggers
+bot detection, but pasting URLs directly in browsers works fine.
+"""
 
 import os
 import json
