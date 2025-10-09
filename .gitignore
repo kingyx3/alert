@@ -15,3 +15,7 @@ purchase_results_*.json
 combined_results_*.json
 test_purchase_workflow.py
 scraper_with_purchase_integration.py
+
+# ETB scraper output files
+etb_scrape_summary_*.json
+available_products_etb_intl_*.json
