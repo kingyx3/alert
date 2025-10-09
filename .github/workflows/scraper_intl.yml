@@ -1,9 +1,9 @@
-name: International ETB Scraper
+name: International Scraper
 
 on:
   workflow_dispatch: # Allow manual triggering
     inputs:
-      scraping_url_intl_etb:
+      scraping_url_intl:
         description: 'International ETB URL to scrape'
         required: false
         type: string
@@ -33,6 +33,6 @@ jobs:
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-        SCRAPING_URL_INTL_ETB: ${{ inputs.scraping_url_intl_etb || vars.SCRAPING_URL_INTL_ETB }}
+        SCRAPING_URL_INTL: ${{ inputs.scraping_url_intl || vars.SCRAPING_URL_INTL }}
       run: |
         python scraper_intl.py
