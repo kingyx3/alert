@@ -226,7 +226,7 @@ class ETBProductExtractor:
             time.sleep(2)
             
             # Try ETB-specific selectors with individual timeouts
-            for selector in ETB_PRODUCT_SELECTORS:
+            for selector in self.ETB_PRODUCT_SELECTORS:
                 try:
                     wait = WebDriverWait(self.driver, 2)
                     elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
