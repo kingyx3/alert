@@ -35,7 +35,11 @@ except ImportError:
     SELENIUM_AVAILABLE = False
     # Mock classes to prevent import errors
     class Options:
-        def add_argument(self, arg): pass
+        def __init__(self):
+            self.arguments = []
+        def add_argument(self, arg): 
+            self.arguments.append(arg)
+        def add_experimental_option(self, name, value): pass
     class Service:
         def __init__(self, path): pass
     class By:
@@ -247,7 +251,7 @@ class ETBWebDriverManager:
                 
                 // Set realistic platform
                 Object.defineProperty(navigator, 'platform', {
-                    get: () => 'Win32'
+                    get: () => 'MacIntel'
                 });
                 
                 // Set realistic hardware concurrency
@@ -357,14 +361,27 @@ class ETBWebDriverManager:
             
             # Add realistic request headers using CDP (Chrome DevTools Protocol)
             try:
+                # Set the specific User-Agent for international ELB scraper
+                intl_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/109.0"
+                
                 self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                    "userAgent": self.current_user_agent,
-                    "acceptLanguage": "en-US,en;q=0.9",
-                    "platform": "Win32"
+                    "userAgent": intl_user_agent,
+                    "acceptLanguage": "en-US,en;q=0.5",
+                    "platform": "MacIntel"
                 })
                 
                 # Enable network domain for header manipulation
                 self.driver.execute_cdp_cmd('Network.enable', {})
+                
+                # Set additional headers for all network requests
+                self.driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {
+                    "headers": {
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Accept-Language": "en-US,en;q=0.5",
+                        "Referer": "http://www.google.com/"
+                    }
+                })
                 
                 print(f"[{get_timestamp()}] Applied realistic request headers via CDP")
                 
