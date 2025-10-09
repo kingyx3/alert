@@ -1,0 +1,39 @@
+{
+  "scrape_time": "2025-10-09T08:47:21.873851",
+  "url_scraped": "file:///tmp/test_no_standard.html",
+  "total_products": 3,
+  "available_products": 3,
+  "scraper_type": "ETB International Custom",
+  "products": [
+    {
+      "name": "Widget Alpha - $99.99",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///shop/widget/1",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:47:20.838809"
+    },
+    {
+      "name": "Widget Beta - $149.99",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///shop/widget/2",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:47:21.316123"
+    },
+    {
+      "name": "Widget Gamma - $199.99",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///shop/widget/3",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:47:21.773678"
+    }
+  ]
+}

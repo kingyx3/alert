@@ -1,0 +1,119 @@
+{
+  "scrape_time": "2025-10-09T08:44:13.703479",
+  "url_scraped": "file:///tmp/test_fallback.html",
+  "total_products": 11,
+  "available_products": 11,
+  "scraper_type": "ETB International Custom",
+  "products": [
+    {
+      "name": "Custom Product A",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///custom/item/1",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:09.674476"
+    },
+    {
+      "name": "Custom Product A",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:10.093615"
+    },
+    {
+      "name": "Custom Product B",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///custom/item/2",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:10.437152"
+    },
+    {
+      "name": "Custom Product B",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:10.835731"
+    },
+    {
+      "name": "Custom Product C",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///custom/item/3",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:11.187591"
+    },
+    {
+      "name": "Custom Product C",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:11.584477"
+    },
+    {
+      "name": "Custom Product D",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///custom/item/4",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:11.937418"
+    },
+    {
+      "name": "Custom Product D",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:12.344520"
+    },
+    {
+      "name": "Custom Product E",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///custom/item/5",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:12.706473"
+    },
+    {
+      "name": "Custom Product E",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:13.121317"
+    },
+    {
+      "name": "List Item 1 - $12.99\nList Item 2 - $22.99\nList Item 3 - $32.99",
+      "price": null,
+      "priceShow": "",
+      "image": "",
+      "url": "file:///list/1",
+      "inStock": true,
+      "source": "ETB International",
+      "extracted_at": "2025-10-09T08:44:13.608167"
+    }
+  ]
+}
