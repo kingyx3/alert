@@ -1,0 +1,38 @@
+name: International Scraper
+
+on:
+  workflow_dispatch: # Allow manual triggering
+    inputs:
+      scraping_url_intl_etb:
+        description: 'International ETB URL to scrape'
+        required: false
+        type: string
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    
+    # - name: Install dependencies
+    #   run: |
+    #     python -m pip install --upgrade pip
+    #     pip install -r requirements.txt
+        
+    - name: Run international scraper
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        SCRAPING_URL_INTL_ETB: ${{ inputs.scraping_url_intl_etb || vars.SCRAPING_URL_INTL_ETB }}
+      run: |
+        python scraper_intl.py
