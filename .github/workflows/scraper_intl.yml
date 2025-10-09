@@ -22,7 +22,7 @@ jobs:
         python-version: '3.9'
 
     - name: Install dependencies
-      run: pip install -r requirements_intl.txt
+      run: pip install -r requirements.txt
     
     # - name: Install dependencies
     #   run: |
