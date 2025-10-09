@@ -142,7 +142,7 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
 
 def main():
     print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
-    url = os.environ.get("SCRAPING_URL")
+    url = os.environ.get("SCRAPING_URL_INTL")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
     payload = fetch_json(url)
