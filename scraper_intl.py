@@ -17,8 +17,9 @@ Requirements:
 import os
 import json
 import time
+import random
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 # Selenium imports with fallbacks
 try:
@@ -195,7 +196,7 @@ class ETBWebDriverManager:
         except Exception as e:
             print(f"[{get_timestamp()}] Warning: Could not apply all anti-detection measures: {str(e)}")
 
-    def is_blocked_by_protection(self, page_source: str, page_title: str) -> tuple[bool, str]:
+    def is_blocked_by_protection(self, page_source: str, page_title: str) -> Tuple[bool, str]:
         """Check if the page is blocked by anti-bot protection systems."""
         page_source_lower = page_source.lower()
         page_title_lower = page_title.lower() if page_title else ""
@@ -1424,7 +1425,6 @@ class InternationalETBScraper:
     def _retry_random_delay(self) -> bool:
         """Wait a random delay and retry."""
         try:
-            import random
             delay = random.uniform(5, 15)
             print(f"[{get_timestamp()}] Random delay of {delay:.1f} seconds...")
             time.sleep(delay)
@@ -1437,6 +1437,41 @@ class InternationalETBScraper:
             return not is_blocked
         except Exception:
             return False
+
+    def _check_page_health(self) -> Tuple[bool, str]:
+        """Check if the page loaded properly and isn't blocked."""
+        try:
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            page_source_length = len(page_source)
+            
+            # Check for anti-bot protection first
+            is_blocked, protection_type = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            if is_blocked:
+                return False, f"Blocked by {protection_type} protection"
+            
+            # Check for very small page content (likely incomplete load)
+            if page_source_length < 500:
+                return False, f"Page content too small ({page_source_length} chars) - possible loading issue"
+            
+            # Check for empty or suspicious title
+            if not page_title or len(page_title.strip()) == 0:
+                return False, "Empty page title - possible loading issue"
+            
+            # Check if page has minimal HTML structure
+            essential_tags = ['body', 'div']
+            missing_tags = []
+            for tag in essential_tags:
+                if f'<{tag}' not in page_source.lower():
+                    missing_tags.append(tag)
+            
+            if missing_tags:
+                return False, f"Missing essential HTML tags: {missing_tags}"
+            
+            return True, "Page appears healthy"
+            
+        except Exception as e:
+            return False, f"Error checking page health: {str(e)}"
 
     def scrape_products(self) -> List[Dict[str, Any]]:
         """Main scraping flow for ETB sites."""
@@ -1484,39 +1519,44 @@ class InternationalETBScraper:
             print(f"[{get_timestamp()}] Page title: '{page_title}'")
             print(f"[{get_timestamp()}] Page source size: {page_source_length} characters")
             
-            # Check for anti-bot protection
-            is_blocked, protection_type = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
-            if is_blocked:
-                print(f"[{get_timestamp()}] === ANTI-BOT PROTECTION DETECTED ===")
-                print(f"[{get_timestamp()}] Protection type: {protection_type}")
-                print(f"[{get_timestamp()}] Page source sample: {page_source[:200]}...")
-                print(f"[{get_timestamp()}] ==========================================")
-                
-                # Try retry strategies
-                retry_success = self._handle_protection_retry(protection_type)
-                if not retry_success:
-                    print(f"[{get_timestamp()}] ERROR: Unable to bypass {protection_type} protection")
-                    print(f"[{get_timestamp()}] TROUBLESHOOTING:")
-                    print(f"[{get_timestamp()}] 1. The site has enhanced anti-bot protection")
-                    print(f"[{get_timestamp()}] 2. Try using a different network/IP address")
-                    print(f"[{get_timestamp()}] 3. Consider using residential proxies")
-                    print(f"[{get_timestamp()}] 4. The site may need manual browser access first")
-                    print(f"[{get_timestamp()}] 5. Try running the scraper from a different environment")
-                    return []
-                
-                # If retry successful, get updated page info
-                current_url = self.webdriver_manager.driver.current_url
-                page_title = self.webdriver_manager.driver.title
-                page_source = self.webdriver_manager.driver.page_source
-                page_source_length = len(page_source)
-                print(f"[{get_timestamp()}] Retry successful - new page source size: {page_source_length} characters")
+            # Check overall page health
+            page_healthy, health_message = self._check_page_health()
+            print(f"[{get_timestamp()}] Page health check: {health_message}")
             
-            # Check for obvious loading issues
-            if page_source_length < 1000:
-                print(f"[{get_timestamp()}] WARNING: Page source very small - possible loading issue")
+            if not page_healthy:
+                if "Blocked by" in health_message:
+                    protection_type = health_message.split("Blocked by ")[1].split(" protection")[0]
+                    print(f"[{get_timestamp()}] === ANTI-BOT PROTECTION DETECTED ===")
+                    print(f"[{get_timestamp()}] Protection type: {protection_type}")
+                    print(f"[{get_timestamp()}] Page source sample: {page_source[:200]}...")
+                    print(f"[{get_timestamp()}] ==========================================")
+                    
+                    # Try retry strategies
+                    retry_success = self._handle_protection_retry(protection_type)
+                    if not retry_success:
+                        print(f"[{get_timestamp()}] ERROR: Unable to bypass {protection_type} protection")
+                        print(f"[{get_timestamp()}] TROUBLESHOOTING:")
+                        print(f"[{get_timestamp()}] 1. The site has enhanced anti-bot protection")
+                        print(f"[{get_timestamp()}] 2. Try using a different network/IP address")
+                        print(f"[{get_timestamp()}] 3. Consider using residential proxies")
+                        print(f"[{get_timestamp()}] 4. The site may need manual browser access first")
+                        print(f"[{get_timestamp()}] 5. Try running the scraper from a different environment")
+                        return []
+                    
+                    # If retry successful, recheck page health
+                    page_healthy, health_message = self._check_page_health()
+                    print(f"[{get_timestamp()}] Post-retry page health: {health_message}")
+                else:
+                    # Non-protection related issue
+                    print(f"[{get_timestamp()}] WARNING: Page loading issue detected")
+                    print(f"[{get_timestamp()}] Issue: {health_message}")
+                    print(f"[{get_timestamp()}] Attempting to continue with limited functionality...")
             
-            if not page_title or len(page_title.strip()) == 0:
-                print(f"[{get_timestamp()}] WARNING: Page title is empty - possible loading issue")
+            # Update page info after any retries
+            current_url = self.webdriver_manager.driver.current_url
+            page_title = self.webdriver_manager.driver.title
+            page_source = self.webdriver_manager.driver.page_source
+            page_source_length = len(page_source)
             
             # Wait for products to load with enhanced detection
             print(f"[{get_timestamp()}] Initiating product detection...")
