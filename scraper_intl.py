@@ -69,8 +69,18 @@ def get_timestamp() -> str:
 class ETBWebDriverManager:
     """Custom WebDriver manager for ETB sites."""
     
+    # Realistic user agents for rotation
+    USER_AGENTS = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7339.207 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.6931.134 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7339.207 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0'
+    ]
+    
     def __init__(self):
         self.driver = None
+        self.current_user_agent = random.choice(self.USER_AGENTS)
         
     def setup_driver(self) -> bool:
         """Setup Chrome driver optimized for ETB sites."""
@@ -97,23 +107,23 @@ class ETBWebDriverManager:
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--window-size=1920,1080')
+        # Randomize window size to look more natural
+        window_sizes = ['1920,1080', '1366,768', '1536,864', '1440,900', '1600,900']
+        selected_size = random.choice(window_sizes)
+        chrome_options.add_argument(f'--window-size={selected_size}')
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-plugins')
         chrome_options.add_argument('--disable-images')
         
-        # Enhanced anti-detection measures
+        # Enhanced anti-detection measures for Incapsula
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-        # More realistic user agent
-        chrome_options.add_argument(
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-        )
+        # Rotate user agent to avoid detection
+        chrome_options.add_argument(f'--user-agent={self.current_user_agent}')
         
-        # Additional anti-bot protection evasion
+        # Additional anti-bot protection evasion for multiple systems
         chrome_options.add_argument('--accept-language=en-US,en;q=0.9')
         chrome_options.add_argument('--disable-web-security')
         chrome_options.add_argument('--disable-features=VizDisplayCompositor')
@@ -121,15 +131,43 @@ class ETBWebDriverManager:
         chrome_options.add_argument('--disable-default-apps')
         chrome_options.add_argument('--disable-sync')
         chrome_options.add_argument('--no-first-run')
+        chrome_options.add_argument('--disable-background-timer-throttling')
+        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
+        chrome_options.add_argument('--disable-renderer-backgrounding')
+        chrome_options.add_argument('--disable-field-trial-config')
+        chrome_options.add_argument('--disable-ipc-flooding-protection')
         
-        # Prefs to make browser appear more natural
+        # Enhanced stealth measures
+        chrome_options.add_argument('--disable-client-side-phishing-detection')
+        chrome_options.add_argument('--disable-component-extensions-with-background-pages')
+        chrome_options.add_argument('--disable-background-networking')
+        chrome_options.add_argument('--disable-popup-blocking')
+        chrome_options.add_argument('--disable-hang-monitor')
+        chrome_options.add_argument('--disable-prompt-on-repost')
+        chrome_options.add_argument('--disable-domain-reliability')
+        chrome_options.add_argument('--disable-component-update')
+        
+        # More natural browser behavior
+        chrome_options.add_argument('--enable-features=NetworkService')
+        chrome_options.add_argument('--force-device-scale-factor=1')
+        chrome_options.add_argument('--simulate-outdated-no-au="Tue, 31 Dec 2099 23:59:59 GMT"')
+        
+        # Enhanced prefs to make browser appear more natural
         prefs = {
             "profile.default_content_setting_values": {
-                "notifications": 2
+                "notifications": 2,
+                "geolocation": 2,
+                "media_stream": 2
             },
             "profile.managed_default_content_settings": {
                 "images": 2
-            }
+            },
+            "profile.content_settings": {
+                "pattern_pairs": {}
+            },
+            "credentials_enable_service": False,
+            "password_manager_enabled": False,
+            "webrtc.ip_handling_policy": "disable_non_proxied_udp"
         }
         chrome_options.add_experimental_option("prefs", prefs)
         
@@ -138,10 +176,20 @@ class ETBWebDriverManager:
     def _try_system_chromedriver(self, chrome_options: Options) -> bool:
         """Try to setup driver with system chromedriver."""
         try:
-            service = Service('/usr/bin/chromedriver')
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            self._apply_anti_detection_measures()
-            return True
+            # Try different chromedriver paths
+            chromedriver_paths = ['/usr/bin/chromedriver', '/usr/local/bin/chromedriver']
+            
+            for path in chromedriver_paths:
+                try:
+                    service = Service(path)
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    self._apply_anti_detection_measures()
+                    return True
+                except Exception:
+                    continue
+                    
+            # If no system chromedriver found, let webdriver-manager handle it
+            return False
         except Exception as e:
             print(f"[{get_timestamp()}] Failed to setup Chrome driver with system chromedriver: {str(e)}")
             return False
@@ -163,35 +211,165 @@ class ETBWebDriverManager:
     def _apply_anti_detection_measures(self):
         """Apply comprehensive anti-detection measures to the driver."""
         try:
-            # Disable webdriver property
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            # Override plugins and languages
+            # Comprehensive navigator property overrides for Incapsula evasion
             self.driver.execute_script("""
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5]
+                // Remove webdriver property
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
                 });
+                
+                // Override plugins array to look realistic
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => ({
+                        0: {
+                            name: "Chrome PDF Plugin",
+                            filename: "internal-pdf-viewer",
+                            description: "Portable Document Format"
+                        },
+                        1: {
+                            name: "Chrome PDF Viewer",
+                            filename: "mhjfbmdgcfjbbpaeojofohoefgiehjai",
+                            description: ""
+                        },
+                        2: {
+                            name: "Native Client",
+                            filename: "internal-nacl-plugin",
+                            description: ""
+                        },
+                        length: 3
+                    })
+                });
+                
+                // Override languages
                 Object.defineProperty(navigator, 'languages', {
                     get: () => ['en-US', 'en']
                 });
+                
+                // Set realistic platform
+                Object.defineProperty(navigator, 'platform', {
+                    get: () => 'Win32'
+                });
+                
+                // Set realistic hardware concurrency
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                    get: () => 4
+                });
+                
+                // Set realistic device memory
+                if ('deviceMemory' in navigator) {
+                    Object.defineProperty(navigator, 'deviceMemory', {
+                        get: () => 8
+                    });
+                }
             """)
             
-            # Set realistic chrome runtime
+            # Set realistic chrome runtime and window properties
             self.driver.execute_script("""
                 window.chrome = {
-                    runtime: {}
+                    app: {
+                        isInstalled: false,
+                        InstallState: {
+                            DISABLED: 'disabled',
+                            INSTALLED: 'installed',
+                            NOT_INSTALLED: 'not_installed'
+                        },
+                        RunningState: {
+                            CANNOT_RUN: 'cannot_run',
+                            READY_TO_RUN: 'ready_to_run',
+                            RUNNING: 'running'
+                        }
+                    },
+                    runtime: {
+                        onConnect: null,
+                        onMessage: null
+                    }
+                };
+                
+                // Override screen properties
+                Object.defineProperty(screen, 'availTop', {get: () => 0});
+                Object.defineProperty(screen, 'availLeft', {get: () => 0});
+                Object.defineProperty(screen, 'availHeight', {get: () => 1040});
+                Object.defineProperty(screen, 'availWidth', {get: () => 1920});
+                Object.defineProperty(screen, 'colorDepth', {get: () => 24});
+                Object.defineProperty(screen, 'pixelDepth', {get: () => 24});
+            """)
+            
+            # Enhanced permissions API override
+            self.driver.execute_script("""
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => {
+                    if (parameters.name === 'notifications') {
+                        return Promise.resolve({ state: 'default', onchange: null });
+                    }
+                    if (parameters.name === 'geolocation') {
+                        return Promise.resolve({ state: 'prompt', onchange: null });
+                    }
+                    return originalQuery ? originalQuery(parameters) : Promise.resolve({ state: 'granted' });
+                };
+                
+                // Override getTimezoneOffset to look realistic
+                Date.prototype.getTimezoneOffset = function() {
+                    return 300; // EST timezone
+                };
+                
+                // Mock battery API if available
+                if ('getBattery' in navigator) {
+                    navigator.getBattery = () => Promise.resolve({
+                        charging: true,
+                        chargingTime: 0,
+                        dischargingTime: Infinity,
+                        level: 1,
+                        addEventListener: () => {},
+                        removeEventListener: () => {},
+                        dispatchEvent: () => {}
+                    });
+                }
+            """)
+            
+            # Additional measures for better stealth
+            self.driver.execute_script("""
+                // Override automation-related properties
+                if ('automation' in window) {
+                    delete window.automation;
+                }
+                
+                // Mock realistic WebGL parameters
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                    if (parameter === 37445) {
+                        return 'Intel Inc.';
+                    }
+                    if (parameter === 37446) {
+                        return 'Intel(R) HD Graphics 620';
+                    }
+                    return getParameter(parameter);
+                };
+                
+                // Override toString methods to hide automation
+                const originalToString = Function.prototype.toString;
+                Function.prototype.toString = function() {
+                    if (this === navigator.webdriver) {
+                        return 'undefined';
+                    }
+                    return originalToString.call(this);
                 };
             """)
             
-            # Override permissions
-            self.driver.execute_script("""
-                const originalQuery = window.navigator.permissions.query;
-                return window.navigator.permissions.query = (parameters) => (
-                    parameters.name === 'notifications' ?
-                        Promise.resolve({ state: Notification.permission }) :
-                        originalQuery(parameters)
-                );
-            """)
+            # Add realistic request headers using CDP (Chrome DevTools Protocol)
+            try:
+                self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                    "userAgent": self.current_user_agent,
+                    "acceptLanguage": "en-US,en;q=0.9",
+                    "platform": "Win32"
+                })
+                
+                # Enable network domain for header manipulation
+                self.driver.execute_cdp_cmd('Network.enable', {})
+                
+                print(f"[{get_timestamp()}] Applied realistic request headers via CDP")
+                
+            except Exception as cdp_error:
+                print(f"[{get_timestamp()}] Could not apply CDP headers: {str(cdp_error)}")
             
         except Exception as e:
             print(f"[{get_timestamp()}] Warning: Could not apply all anti-detection measures: {str(e)}")
@@ -201,22 +379,56 @@ class ETBWebDriverManager:
         page_source_lower = page_source.lower()
         page_title_lower = page_title.lower() if page_title else ""
         
-        # Incapsula detection
-        if "incapsula incident id" in page_source_lower:
-            incident_match = page_source_lower.find("incapsula incident id")
-            return True, "Incapsula"
+        # Enhanced Incapsula detection
+        incapsula_indicators = [
+            "incapsula incident id",
+            "_incap_sys_visid_",
+            "incapsula",
+            "visid_incap_",
+            "__incap"
+        ]
+        for indicator in incapsula_indicators:
+            if indicator in page_source_lower:
+                return True, "Incapsula"
         
-        # Cloudflare detection
+        # Enhanced Cloudflare detection
         cloudflare_indicators = [
             "cloudflare ray id",
             "checking your browser",
             "please enable cookies",
             "ddos protection by cloudflare",
-            "attention required! | cloudflare"
+            "attention required! | cloudflare",
+            "cf-ray:",
+            "__cf_bm",
+            "cf_clearance",
+            "cloudflare",
+            "just a moment"
         ]
         for indicator in cloudflare_indicators:
             if indicator in page_source_lower or indicator in page_title_lower:
                 return True, "Cloudflare"
+        
+        # DataDome detection
+        datadome_indicators = [
+            "datadome",
+            "dd_captcha",
+            "_dd_s",
+            "geo.captcha-delivery.com"
+        ]
+        for indicator in datadome_indicators:
+            if indicator in page_source_lower:
+                return True, "DataDome"
+        
+        # PerimeterX detection
+        perimeterx_indicators = [
+            "_px",
+            "perimeterx",
+            "px-captcha",
+            "_pxhd"
+        ]
+        for indicator in perimeterx_indicators:
+            if indicator in page_source_lower:
+                return True, "PerimeterX"
         
         # Generic bot detection
         bot_indicators = [
@@ -226,7 +438,11 @@ class ETBWebDriverManager:
             "rate limit exceeded",
             "temporarily unavailable",
             "security check",
-            "human verification"
+            "human verification",
+            "robot or human",
+            "verify you are human",
+            "captcha",
+            "too many requests"
         ]
         for indicator in bot_indicators:
             if indicator in page_source_lower or indicator in page_title_lower:
@@ -1367,12 +1583,15 @@ class InternationalETBScraper:
             print(f"[{get_timestamp()}] Warning: SCRAPING_URL_INTL_ETB environment variable not set")
     
     def _handle_protection_retry(self, protection_type: str) -> bool:
-        """Handle anti-bot protection with retry strategies."""
+        """Handle anti-bot protection with enhanced retry strategies."""
         print(f"[{get_timestamp()}] Attempting to bypass {protection_type} protection...")
         
+        # Enhanced retry strategies specifically for Incapsula
         retry_strategies = [
-            ("Wait and reload", self._retry_wait_and_reload),
-            ("Clear cookies and retry", self._retry_clear_cookies),
+            ("Progressive delay with navigation", self._retry_progressive_delay),
+            ("Clear cookies and stealth reload", self._retry_clear_cookies_enhanced),
+            ("Human-like browsing simulation", self._retry_human_behavior),
+            ("Long wait and reload", self._retry_wait_and_reload),
             ("Random delay retry", self._retry_random_delay),
         ]
         
@@ -1385,6 +1604,8 @@ class InternationalETBScraper:
                     return True
                 else:
                     print(f"[{get_timestamp()}] FAILED: {strategy_name} did not work")
+                    # Add progressive backoff between strategies
+                    time.sleep(random.uniform(2, 5))
             except Exception as e:
                 print(f"[{get_timestamp()}] ERROR in {strategy_name}: {str(e)}")
                 continue
@@ -1430,6 +1651,102 @@ class InternationalETBScraper:
             time.sleep(delay)
             self.webdriver_manager.driver.refresh()
             time.sleep(5)
+            
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            is_blocked, _ = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            return not is_blocked
+        except Exception:
+            return False
+    
+    def _retry_progressive_delay(self) -> bool:
+        """Wait with progressive delays and multiple reload attempts."""
+        try:
+            # Progressive delays: 15s, 30s, 45s
+            delays = [15, 30, 45]
+            
+            for i, delay in enumerate(delays):
+                print(f"[{get_timestamp()}] Progressive delay attempt {i+1}/3: {delay} seconds...")
+                time.sleep(delay)
+                
+                # Clear cache and reload
+                self.webdriver_manager.driver.execute_script("window.localStorage.clear();")
+                self.webdriver_manager.driver.execute_script("window.sessionStorage.clear();")
+                self.webdriver_manager.driver.refresh()
+                time.sleep(8)
+                
+                page_source = self.webdriver_manager.driver.page_source
+                page_title = self.webdriver_manager.driver.title
+                is_blocked, _ = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+                
+                if not is_blocked:
+                    print(f"[{get_timestamp()}] Progressive delay succeeded after {delay}s wait")
+                    return True
+                
+                print(f"[{get_timestamp()}] Still blocked after {delay}s wait, trying next delay...")
+            
+            return False
+        except Exception:
+            return False
+    
+    def _retry_clear_cookies_enhanced(self) -> bool:
+        """Enhanced cookie clearing with additional cleanup."""
+        try:
+            print(f"[{get_timestamp()}] Enhanced cookie and cache clearing...")
+            
+            # Clear all browser data
+            self.webdriver_manager.driver.delete_all_cookies()
+            self.webdriver_manager.driver.execute_script("window.localStorage.clear();")
+            self.webdriver_manager.driver.execute_script("window.sessionStorage.clear();")
+            
+            # Navigate to empty page first
+            self.webdriver_manager.driver.get("about:blank")
+            time.sleep(3)
+            
+            # Re-apply anti-detection measures
+            self.webdriver_manager._apply_anti_detection_measures()
+            time.sleep(2)
+            
+            # Navigate to target page
+            self.webdriver_manager.driver.get(self.base_url)
+            time.sleep(12)  # Longer wait after clearing everything
+            
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            is_blocked, _ = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            return not is_blocked
+        except Exception:
+            return False
+    
+    def _retry_human_behavior(self) -> bool:
+        """Simulate human-like browsing behavior."""
+        try:
+            print(f"[{get_timestamp()}] Simulating human-like browsing behavior...")
+            
+            # First navigate to homepage
+            from urllib.parse import urlparse
+            parsed_url = urlparse(self.base_url)
+            homepage_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            
+            print(f"[{get_timestamp()}] Navigating to homepage first: {homepage_url}")
+            self.webdriver_manager.driver.get(homepage_url)
+            time.sleep(random.uniform(8, 12))
+            
+            # Simulate some scrolling
+            print(f"[{get_timestamp()}] Simulating scrolling behavior...")
+            for _ in range(3):
+                scroll_y = random.randint(200, 800)
+                self.webdriver_manager.driver.execute_script(f"window.scrollTo(0, {scroll_y});")
+                time.sleep(random.uniform(1, 3))
+            
+            # Scroll back to top
+            self.webdriver_manager.driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(random.uniform(2, 4))
+            
+            # Now navigate to target page
+            print(f"[{get_timestamp()}] Navigating to target page...")
+            self.webdriver_manager.driver.get(self.base_url)
+            time.sleep(random.uniform(10, 15))
             
             page_source = self.webdriver_manager.driver.page_source
             page_title = self.webdriver_manager.driver.title
@@ -1505,9 +1822,11 @@ class InternationalETBScraper:
                 print(f"[{get_timestamp()}] TROUBLESHOOTING: Check internet connection and URL accessibility")
                 return []
             
-            # Wait for page to load completely
+            # Wait for page to load completely with human-like timing
             print(f"[{get_timestamp()}] Waiting for page to load completely...")
-            time.sleep(5)
+            initial_wait = random.uniform(8, 12)
+            print(f"[{get_timestamp()}] Initial wait: {initial_wait:.1f} seconds...")
+            time.sleep(initial_wait)
             
             # Comprehensive page loading validation
             current_url = self.webdriver_manager.driver.current_url
