@@ -166,7 +166,26 @@ class ETBProductExtractor:
         # ETB specific patterns
         '.etb-product',
         '.etb-item',
-        '[data-etb-product]'
+        '[data-etb-product]',
+        # Additional common e-commerce patterns
+        '.listing-item',
+        '.search-result',
+        '.product-box',
+        '.item-box',
+        '.catalog-item',
+        '.shop-item',
+        '[data-item-id]',
+        '[data-sku]',
+        '.merchandise',
+        '.goods-item',
+        # More generic patterns for broader coverage
+        'article[class*="product"]',
+        'div[class*="product"]',
+        'li[class*="product"]',
+        'div[id*="product"]',
+        # Very broad patterns (use carefully)
+        'a[href*="/product"]',
+        'a[href*="/item"]'
     ]
     
     ETB_TITLE_SELECTORS = [
@@ -236,10 +255,14 @@ class ETBProductExtractor:
         try:
             print(f"[{get_timestamp()}] Waiting for ETB products to load...")
             
-            # Try ETB-specific selectors
+            # Wait for page to be ready first
+            time.sleep(2)
+            
+            # Try ETB-specific selectors with individual timeouts
             for selector in self.ETB_PRODUCT_SELECTORS:
                 try:
-                    wait = WebDriverWait(self.driver, timeout // len(self.ETB_PRODUCT_SELECTORS))
+                    # Give each selector a reasonable timeout (2 seconds)
+                    wait = WebDriverWait(self.driver, 2)
                     elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
                     if elements and len(elements) > 0:
                         print(f"[{get_timestamp()}] Found {len(elements)} products using selector: {selector}")
@@ -250,12 +273,279 @@ class ETBProductExtractor:
                     print(f"[{get_timestamp()}] Error with selector {selector}: {str(e)}")
                     continue
             
-            print(f"[{get_timestamp()}] No ETB products found with known selectors")
-            return []
+            # If no products found with specific selectors, try fallback strategies
+            print(f"[{get_timestamp()}] No products found with specific selectors, trying fallback approaches...")
+            return self._try_fallback_product_detection()
             
         except Exception as e:
             print(f"[{get_timestamp()}] Error waiting for ETB products: {str(e)}")
             return []
+    
+    def _try_fallback_product_detection(self) -> List[Any]:
+        """Try fallback strategies to detect products when specific selectors fail."""
+        try:
+            # Strategy 1: Find elements by price selectors and get their containers
+            price_elements = self._find_elements_by_price()
+            if price_elements:
+                return price_elements
+            
+            # Strategy 2: Find elements containing common e-commerce patterns
+            pattern_elements = self._find_elements_by_patterns()
+            if pattern_elements:
+                return pattern_elements
+            
+            # Strategy 3: Debug page structure to understand what we're working with
+            self._debug_page_structure()
+            
+            # Strategy 4: Try generic container detection
+            generic_elements = self._find_generic_containers()
+            if generic_elements:
+                return generic_elements
+                
+            return []
+            
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in fallback detection: {str(e)}")
+            return []
+    
+    def _find_elements_by_price(self) -> List[Any]:
+        """Find product containers by looking for price elements."""
+        try:
+            print(f"[{get_timestamp()}] Trying price-based product detection...")
+            for price_selector in self.ETB_PRICE_SELECTORS[:5]:  # Try first 5 price selectors
+                try:
+                    price_elements = self.driver.find_elements(By.CSS_SELECTOR, price_selector)
+                    if price_elements:
+                        # Get parent containers of price elements
+                        containers = []
+                        for price_elem in price_elements[:20]:  # Limit to first 20 to avoid performance issues
+                            try:
+                                # Try to get a reasonable container (parent or grandparent)
+                                container = self._get_product_container(price_elem)
+                                if container and container not in containers:
+                                    containers.append(container)
+                            except:
+                                continue
+                        
+                        if containers:
+                            print(f"[{get_timestamp()}] Found {len(containers)} products via price selector: {price_selector}")
+                            return containers
+                except:
+                    continue
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in price-based detection: {str(e)}")
+        return []
+    
+    def _find_elements_by_patterns(self) -> List[Any]:
+        """Find elements that contain common e-commerce patterns."""
+        try:
+            print(f"[{get_timestamp()}] Trying pattern-based product detection...")
+            # Look for divs/elements that contain links with meaningful href patterns
+            try:
+                # Find all links that look like product links
+                links = self.driver.find_elements(By.TAG_NAME, "a")
+                product_links = []
+                for link in links:
+                    href = link.get_attribute('href')
+                    if href and self._href_looks_like_product(href):
+                        product_links.append(link)
+                
+                if len(product_links) >= 2:
+                    # Get parent containers of product links
+                    containers = []
+                    for link in product_links:
+                        try:
+                            parent = link.find_element(By.XPATH, "..")
+                            if parent and parent not in containers:
+                                containers.append(parent)
+                        except:
+                            containers.append(link)
+                    
+                    if len(containers) >= 2:
+                        print(f"[{get_timestamp()}] Found {len(containers)} products via product link detection")
+                        return containers
+            except:
+                pass
+            
+            # Look for elements that contain both text patterns and links
+            patterns = [
+                "div:has(a[href])",  # Divs with links
+                "article",  # Articles (common for products)
+                "li:has(a)",  # List items with links
+                "[class*='item']:has(a)",  # Items with links
+                "[class*='card']:has(a)",  # Cards with links
+            ]
+            
+            for pattern in patterns:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, pattern)
+                    if elements and len(elements) >= 2:  # Must find multiple elements
+                        # Filter elements that look like products
+                        product_like = []
+                        for elem in elements[:50]:  # Limit for performance
+                            if self._element_looks_like_product(elem):
+                                product_like.append(elem)
+                        
+                        if len(product_like) >= 2:  # Need at least a couple products
+                            print(f"[{get_timestamp()}] Found {len(product_like)} products via pattern: {pattern}")
+                            return product_like
+                except:
+                    continue
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in pattern-based detection: {str(e)}")
+        return []
+    
+    def _href_looks_like_product(self, href: str) -> bool:
+        """Check if href looks like a product link."""
+        if not href or href == '#':
+            return False
+        
+        # Common product URL patterns
+        product_patterns = [
+            '/product', '/item', '/shop', '/buy', '/p/', '/goods',
+            'product=', 'item=', 'id=', 'sku=', '/widget'
+        ]
+        
+        href_lower = href.lower()
+        for pattern in product_patterns:
+            if pattern in href_lower:
+                return True
+        
+        return False
+    
+    def _find_generic_containers(self) -> List[Any]:
+        """Find generic container elements that might contain products."""
+        try:
+            print(f"[{get_timestamp()}] Trying generic container detection...")
+            # Look for repetitive structures (common in product listings)
+            selectors = [
+                "div > div > div",  # Nested divs
+                "ul > li",  # List items
+                "div[class]",  # Divs with classes
+                "section > div",  # Sections with divs
+            ]
+            
+            for selector in selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if len(elements) > 10:  # Must be many similar elements
+                        # Take a sample and check if they contain links/text
+                        sample = elements[:20]
+                        valid_elements = []
+                        for elem in sample:
+                            if self._element_has_content(elem):
+                                valid_elements.append(elem)
+                        
+                        if len(valid_elements) > 5:
+                            print(f"[{get_timestamp()}] Found {len(valid_elements)} elements via generic selector: {selector}")
+                            return valid_elements
+                except:
+                    continue
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in generic detection: {str(e)}")
+        return []
+    
+    def _get_product_container(self, price_element) -> Any:
+        """Get a reasonable product container for a price element."""
+        try:
+            # Try parent, then grandparent
+            parent = price_element.find_element(By.XPATH, "..")
+            if self._element_looks_like_product(parent):
+                return parent
+            
+            grandparent = parent.find_element(By.XPATH, "..")
+            if self._element_looks_like_product(grandparent):
+                return grandparent
+            
+            return parent  # Fallback to parent
+        except:
+            return price_element
+    
+    def _element_looks_like_product(self, element) -> bool:
+        """Check if element looks like a product container."""
+        try:
+            # Check if element has reasonable size and contains link or text
+            size = element.size
+            if size['width'] < 50 or size['height'] < 50:
+                return False
+            
+            # Check if it contains a link
+            links = element.find_elements(By.TAG_NAME, "a")
+            if links:
+                return True
+            
+            # Check if it has meaningful text
+            text = element.text.strip()
+            if len(text) > 10:
+                return True
+                
+            return False
+        except:
+            return False
+    
+    def _element_has_content(self, element) -> bool:
+        """Check if element has meaningful content."""
+        try:
+            # Check for links
+            links = element.find_elements(By.TAG_NAME, "a")
+            if links:
+                return True
+            
+            # Check for images
+            images = element.find_elements(By.TAG_NAME, "img")
+            if images:
+                return True
+            
+            # Check for text content
+            text = element.text.strip()
+            if len(text) > 5:
+                return True
+                
+            return False
+        except:
+            return False
+    
+    def _debug_page_structure(self):
+        """Debug the page structure to understand what elements are available."""
+        try:
+            print(f"[{get_timestamp()}] Debugging page structure...")
+            
+            # Get page title
+            title = self.driver.title
+            print(f"[{get_timestamp()}] Page title: {title}")
+            
+            # Check common container elements
+            containers = ['div', 'section', 'article', 'main', 'ul', 'li']
+            for container in containers:
+                elements = self.driver.find_elements(By.TAG_NAME, container)
+                if len(elements) > 10:
+                    print(f"[{get_timestamp()}] Found {len(elements)} {container} elements")
+            
+            # Check for elements with common class patterns
+            class_patterns = ['product', 'item', 'card', 'grid', 'list']
+            for pattern in class_patterns:
+                elements = self.driver.find_elements(By.CSS_SELECTOR, f"[class*='{pattern}']")
+                if elements:
+                    print(f"[{get_timestamp()}] Found {len(elements)} elements with class containing '{pattern}'")
+            
+            # Check for links
+            links = self.driver.find_elements(By.TAG_NAME, "a")
+            print(f"[{get_timestamp()}] Found {len(links)} links on page")
+            
+            # Sample some class names to help understand the structure
+            divs = self.driver.find_elements(By.TAG_NAME, "div")[:20]
+            class_names = []
+            for div in divs:
+                class_attr = div.get_attribute("class")
+                if class_attr:
+                    class_names.extend(class_attr.split())
+            
+            unique_classes = list(set(class_names))[:10]
+            if unique_classes:
+                print(f"[{get_timestamp()}] Sample class names: {', '.join(unique_classes)}")
+                
+        except Exception as e:
+            print(f"[{get_timestamp()}] Error in debug: {str(e)}")
     
     def extract_product_info(self, element) -> Optional[Dict[str, Any]]:
         """Extract product information from an ETB product element."""
@@ -293,10 +583,26 @@ class ETBProductExtractor:
             try:
                 title_elem = element.find_element(By.CSS_SELECTOR, selector)
                 title = title_elem.get_attribute('title') or title_elem.text.strip()
-                if title:
-                    return title
+                if title and len(title.strip()) > 0:
+                    return title.strip()
             except:
                 continue
+        
+        # Fallback: try to get text from the element itself or its first link
+        try:
+            # Try element's own text
+            element_text = element.text.strip()
+            if element_text and len(element_text) > 0 and len(element_text) < 200:
+                return element_text
+            
+            # Try first link's text
+            first_link = element.find_element(By.TAG_NAME, "a")
+            link_text = first_link.text.strip()
+            if link_text and len(link_text) > 0:
+                return link_text
+        except:
+            pass
+        
         return ""
     
     def _extract_price(self, element) -> Optional[float]:
@@ -347,23 +653,26 @@ class ETBProductExtractor:
                 try:
                     link_elem = element.find_element(By.CSS_SELECTOR, selector)
                     href = link_elem.get_attribute('href')
-                    if href:
-                        # Handle relative URLs
-                        if href.startswith('/'):
-                            current_url = self.driver.current_url
-                            from urllib.parse import urlparse
-                            parsed = urlparse(current_url)
-                            return f"{parsed.scheme}://{parsed.netloc}{href}"
-                        elif href.startswith('http'):
-                            return href
+                    if href and href != '#':
+                        return self._normalize_url(href)
                 except:
                     continue
+            
+            # Try to find any link within the element
+            try:
+                links = element.find_elements(By.TAG_NAME, "a")
+                for link in links:
+                    href = link.get_attribute('href')
+                    if href and href != '#' and not href.startswith('javascript:'):
+                        return self._normalize_url(href)
+            except:
+                pass
             
             # If element itself is a link
             try:
                 href = element.get_attribute('href')
-                if href:
-                    return href
+                if href and href != '#':
+                    return self._normalize_url(href)
             except:
                 pass
                 
@@ -371,6 +680,26 @@ class ETBProductExtractor:
             print(f"[{get_timestamp()}] Error extracting product URL: {str(e)}")
         
         return ""
+    
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL to be absolute."""
+        try:
+            if url.startswith('http') or url.startswith('file://'):
+                return url
+            elif url.startswith('//'):
+                return 'https:' + url
+            elif url.startswith('/'):
+                current_url = self.driver.current_url
+                from urllib.parse import urlparse
+                parsed = urlparse(current_url)
+                return f"{parsed.scheme}://{parsed.netloc}{url}"
+            else:
+                # Relative URL - use urljoin for proper handling
+                from urllib.parse import urljoin
+                current_url = self.driver.current_url
+                return urljoin(current_url, url)
+        except:
+            return url
 
 
 class InternationalETBScraper:
@@ -404,8 +733,14 @@ class InternationalETBScraper:
             print(f"[{get_timestamp()}] Navigating to ETB page...")
             self.webdriver_manager.driver.get(self.base_url)
             
-            # Wait for page to load
-            time.sleep(3)
+            # Wait for page to load completely
+            print(f"[{get_timestamp()}] Waiting for page to load completely...")
+            time.sleep(5)
+            
+            # Check if page loaded successfully
+            current_url = self.webdriver_manager.driver.current_url
+            page_title = self.webdriver_manager.driver.title
+            print(f"[{get_timestamp()}] Page loaded - URL: {current_url}, Title: {page_title}")
             
             # Wait for products to load
             product_elements = self.product_extractor.wait_for_products_to_load(timeout=30)
