@@ -3,6 +3,7 @@
 import os
 import json
 import time
+import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
@@ -18,47 +19,143 @@ try:
     _HAS_REQUESTS = True
 except Exception:
     import urllib.request as _urllib_request  # type: ignore
+    import urllib.parse as _urllib_parse  # type: ignore
     _HAS_REQUESTS = False
 
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/109.0",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Referer": "http://www.google.com/",
-}
+# Rotate between multiple realistic user agents
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0"
+]
+
+def get_realistic_headers(referer: Optional[str] = None) -> Dict[str, str]:
+    """Generate realistic browser headers with random user agent."""
+    user_agent = random.choice(USER_AGENTS)
+    
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Cache-Control": "max-age=0"
+    }
+    
+    if referer:
+        headers["Referer"] = referer
+    
+    # Add browser-specific headers based on user agent
+    if "Chrome" in user_agent:
+        headers.update({
+            "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"' if "Windows" in user_agent else '"macOS"'
+        })
+    
+    return headers
+
+DEFAULT_HEADERS = get_realistic_headers("https://www.google.com/")
 
 def get_timestamp() -> str:
     """Return current timestamp in ISO format."""
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+# Global session for maintaining cookies and state
+_SESSION = None
+
+def get_session():
+    """Get or create a requests session with browser-like configuration."""
+    global _SESSION
+    if _SESSION is None and _HAS_REQUESTS:
+        _SESSION = requests.Session()
+        # Configure session with browser-like settings
+        _SESSION.headers.update(get_realistic_headers())
+        # Enable cookies
+        _SESSION.cookies.clear()
+    return _SESSION
+
+def human_delay(min_delay: float = 0.5, max_delay: float = 2.0):
+    """Add random delay to mimic human browsing behavior."""
+    delay = random.uniform(min_delay, max_delay)
+    time.sleep(delay)
+
 def fetch_json(url: str,
                headers: Optional[Dict[str, str]] = None,
                retries: int = DEFAULT_RETRIES,
                backoff: float = DEFAULT_BACKOFF,
-               timeout: int = DEFAULT_TIMEOUT) -> Optional[Dict[str, Any]]:
+               timeout: int = DEFAULT_TIMEOUT,
+               use_session: bool = True) -> Optional[Dict[str, Any]]:
     """
     Fetch JSON from `url` with retries. Returns parsed JSON dict or None.
-    Uses requests if available, otherwise urllib.
+    Uses requests session if available for better bot detection avoidance, otherwise urllib.
     """
-    headers = headers or DEFAULT_HEADERS
+    if headers is None:
+        headers = get_realistic_headers()
+    
     attempt = 0
     while attempt < retries:
         try:
+            # Add human-like delay before request
+            if attempt > 0:
+                human_delay(1.0, 3.0)  # Longer delay on retries
+            else:
+                human_delay(0.2, 0.8)  # Short delay on first attempt
+            
             if _HAS_REQUESTS:
-                resp = requests.get(url, headers=headers, timeout=timeout)
+                session = get_session() if use_session else None
+                
+                if session:
+                    # Update session headers for this request
+                    session.headers.update(headers)
+                    resp = session.get(url, timeout=timeout)
+                else:
+                    resp = requests.get(url, headers=headers, timeout=timeout)
+                
                 text = resp.text
                 status = resp.status_code
-                if status != 200:
+                
+                # Check for common bot detection responses
+                if status == 403:
+                    print(f"[{get_timestamp()}] Access forbidden (403) - possible bot detection from {url}")
+                elif status == 429:
+                    print(f"[{get_timestamp()}] Rate limited (429) - backing off from {url}")
+                    human_delay(5.0, 10.0)  # Longer delay for rate limiting
+                elif status != 200:
                     print(f"[{get_timestamp()}] HTTP {status} from {url}")
+                    
+                if status not in [200, 403, 429]:
                     raise RuntimeError(f"HTTP {status}")
+                    
             else:
                 req = _urllib_request.Request(url, headers=headers)
                 with _urllib_request.urlopen(req, timeout=timeout) as r:
                     text = r.read().decode("utf-8")
+                    status = 200
+            # Check for bot detection in response
+            if status == 403 or "captcha" in text.lower() or "blocked" in text.lower():
+                print(f"[{get_timestamp()}] Possible bot detection on attempt {attempt+1}. Response indicates blocking.")
+                # Try with different headers on next attempt
+                headers = get_realistic_headers("https://www.google.com/")
+                attempt += 1
+                if attempt < retries:
+                    wait = backoff * (2 ** (attempt - 1)) + random.uniform(1, 3)
+                    print(f"[{get_timestamp()}] Bot detection suspected. Retrying with new headers in {wait:.1f}s...")
+                    time.sleep(wait)
+                continue
+            
             # Try parse JSON
             try:
                 data = json.loads(text)
+                print(f"[{get_timestamp()}] Successfully fetched and parsed JSON from {url}")
                 return data
             except json.JSONDecodeError:
                 # Lazada sometimes returns HTML containing a JSON blob or anti-bot page
@@ -67,20 +164,33 @@ def fetch_json(url: str,
                 response_preview = (text[:JSON_CONTENT_PREVIEW_LENGTH] + "..." 
                                  if len(text) > JSON_CONTENT_PREVIEW_LENGTH else text)
                 print(f"[{get_timestamp()}] Response content: {response_preview}")
+                
+                # Check if this looks like an anti-bot page
+                if any(keyword in text.lower() for keyword in ['robot', 'bot', 'captcha', 'security check', 'verify', 'cloudflare']):
+                    print(f"[{get_timestamp()}] Response appears to be an anti-bot page.")
+                    # Try with different headers on next attempt
+                    headers = get_realistic_headers("https://www.google.com/")
+                    
                 # Attempt to locate JSON substring as a last resort
                 json_start_pattern = '{"mods"'
                 start = text.find(json_start_pattern)
                 if start != -1:
                     try:
                         data = json.loads(text[start:])
+                        print(f"[{get_timestamp()}] Found and parsed JSON substring from response")
                         return data
                     except json.JSONDecodeError:
                         pass
                 raise
         except Exception as e:
             attempt += 1
-            wait = backoff * (2 ** (attempt - 1))
+            wait = backoff * (2 ** (attempt - 1)) + random.uniform(0.5, 2.0)  # Add randomness to backoff
             print(f"[{get_timestamp()}] Fetch attempt {attempt} failed: {e}. Retrying in {wait:.1f}s...")
+            
+            # Use fresh headers for next attempt
+            if attempt < retries:
+                headers = get_realistic_headers("https://www.google.com/")
+                
             time.sleep(wait)
     print(f"[{get_timestamp()}] All {retries} fetch attempts failed for {url}")
     return None
@@ -139,12 +249,40 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     available = [p for p in products if p.get("inStock") is True]
     return available
 
+def simulate_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Simulate browser navigation by first visiting a referrer page, then the target.
+    This helps avoid bot detection when clicking links vs direct URL access.
+    """
+    if not target_url:
+        return None
+        
+    print(f"[{get_timestamp()}] Simulating browser navigation to avoid bot detection...")
+    
+    # First, simulate visiting a search engine or referrer page
+    referrer_urls = [
+        "https://www.google.com/",
+        "https://www.bing.com/", 
+        "https://duckduckgo.com/"
+    ]
+    
+    referrer = random.choice(referrer_urls)
+    print(f"[{get_timestamp()}] Simulating visit from referrer: {referrer}")
+    
+    # Add a realistic delay as if browsing from referrer
+    human_delay(1.0, 3.0)
+    
+    # Now fetch the target URL with the referrer set
+    headers = get_realistic_headers(referrer)
+    return fetch_json(target_url, headers=headers, use_session=True)
+
 def main():
     print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
     url = os.environ.get("SCRAPING_URL_INTL")
-    print(f"[{get_timestamp()}] Fetching: {url}")
-
-    payload = fetch_json(url)
+    print(f"[{get_timestamp()}] Target URL: {url}")
+    
+    # Use enhanced navigation simulation to avoid bot detection
+    payload = simulate_browser_navigation(url)
     if payload is None:
         print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
         return
