@@ -1754,6 +1754,47 @@ class InternationalETBScraper:
             return not is_blocked
         except Exception:
             return False
+    
+    def _print_protection_specific_guidance(self, protection_type: str):
+        """Print specific troubleshooting guidance based on protection type."""
+        print(f"[{get_timestamp()}] === {protection_type.upper()} PROTECTION BYPASS GUIDANCE ===")
+        
+        if protection_type == "Incapsula":
+            print(f"[{get_timestamp()}] Incapsula is an advanced bot protection system.")
+            print(f"[{get_timestamp()}] RECOMMENDATIONS:")
+            print(f"[{get_timestamp()}] 1. Try accessing the site manually in a browser first")
+            print(f"[{get_timestamp()}] 2. Use residential IP addresses (not datacenter/VPS IPs)")
+            print(f"[{get_timestamp()}] 3. Implement longer delays between requests (30-60 seconds)")
+            print(f"[{get_timestamp()}] 4. Consider rotating user agents and browser fingerprints")
+            print(f"[{get_timestamp()}] 5. Some Incapsula sites require JavaScript challenges to be solved")
+            print(f"[{get_timestamp()}] 6. Try running from different geographic locations")
+            
+        elif protection_type == "Cloudflare":
+            print(f"[{get_timestamp()}] Cloudflare protection detected.")
+            print(f"[{get_timestamp()}] RECOMMENDATIONS:")
+            print(f"[{get_timestamp()}] 1. Wait for challenge page to complete automatically")
+            print(f"[{get_timestamp()}] 2. Enable JavaScript and cookies")
+            print(f"[{get_timestamp()}] 3. Use realistic browser headers and timing")
+            print(f"[{get_timestamp()}] 4. Avoid making too many concurrent requests")
+            
+        elif protection_type == "DataDome":
+            print(f"[{get_timestamp()}] DataDome protection detected.")
+            print(f"[{get_timestamp()}] RECOMMENDATIONS:")
+            print(f"[{get_timestamp()}] 1. DataDome analyzes behavioral patterns")
+            print(f"[{get_timestamp()}] 2. Implement very human-like browsing patterns")
+            print(f"[{get_timestamp()}] 3. Use mouse movements and realistic timing")
+            print(f"[{get_timestamp()}] 4. Rotate IP addresses frequently")
+            
+        else:
+            print(f"[{get_timestamp()}] General anti-bot protection detected.")
+            print(f"[{get_timestamp()}] RECOMMENDATIONS:")
+            print(f"[{get_timestamp()}] 1. The site has enhanced anti-bot protection")
+            print(f"[{get_timestamp()}] 2. Try using a different network/IP address")
+            print(f"[{get_timestamp()}] 3. Consider using residential proxies")
+            print(f"[{get_timestamp()}] 4. The site may need manual browser access first")
+            print(f"[{get_timestamp()}] 5. Try running the scraper from a different environment")
+            
+        print(f"[{get_timestamp()}] === END PROTECTION GUIDANCE ===")
 
     def _check_page_health(self) -> Tuple[bool, str]:
         """Check if the page loaded properly and isn't blocked."""
@@ -1818,8 +1859,23 @@ class InternationalETBScraper:
                 self.webdriver_manager.driver.get(self.base_url)
                 print(f"[{get_timestamp()}] Navigation successful")
             except Exception as e:
-                print(f"[{get_timestamp()}] ERROR: Navigation failed: {str(e)}")
-                print(f"[{get_timestamp()}] TROUBLESHOOTING: Check internet connection and URL accessibility")
+                error_msg = str(e)
+                print(f"[{get_timestamp()}] ERROR: Navigation failed: {error_msg}")
+                
+                # Provide more specific troubleshooting based on error type
+                if "ERR_NAME_NOT_RESOLVED" in error_msg:
+                    print(f"[{get_timestamp()}] TROUBLESHOOTING: DNS resolution failed")
+                    print(f"[{get_timestamp()}] - Check if {self.base_url} is accessible")
+                    print(f"[{get_timestamp()}] - Verify internet connection")
+                    print(f"[{get_timestamp()}] - The site may be blocked in this environment")
+                elif "ERR_INTERNET_DISCONNECTED" in error_msg:
+                    print(f"[{get_timestamp()}] TROUBLESHOOTING: No internet connection")
+                elif "ERR_CONNECTION_TIMED_OUT" in error_msg:
+                    print(f"[{get_timestamp()}] TROUBLESHOOTING: Connection timeout")
+                    print(f"[{get_timestamp()}] - Site may be temporarily unavailable")
+                    print(f"[{get_timestamp()}] - Try again later or use a different network")
+                else:
+                    print(f"[{get_timestamp()}] TROUBLESHOOTING: Check internet connection and URL accessibility")
                 return []
             
             # Wait for page to load completely with human-like timing
@@ -1854,12 +1910,7 @@ class InternationalETBScraper:
                     retry_success = self._handle_protection_retry(protection_type)
                     if not retry_success:
                         print(f"[{get_timestamp()}] ERROR: Unable to bypass {protection_type} protection")
-                        print(f"[{get_timestamp()}] TROUBLESHOOTING:")
-                        print(f"[{get_timestamp()}] 1. The site has enhanced anti-bot protection")
-                        print(f"[{get_timestamp()}] 2. Try using a different network/IP address")
-                        print(f"[{get_timestamp()}] 3. Consider using residential proxies")
-                        print(f"[{get_timestamp()}] 4. The site may need manual browser access first")
-                        print(f"[{get_timestamp()}] 5. Try running the scraper from a different environment")
+                        self._print_protection_specific_guidance(protection_type)
                         return []
                     
                     # If retry successful, recheck page health
