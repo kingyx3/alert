@@ -17,8 +17,9 @@ Requirements:
 import os
 import json
 import time
+import random
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 # Selenium imports with fallbacks
 try:
@@ -88,8 +89,10 @@ class ETBWebDriverManager:
             return False
     
     def _get_chrome_options(self) -> Options:
-        """Configure Chrome options specifically for ETB sites."""
+        """Configure Chrome options specifically for ETB sites with enhanced anti-bot protection."""
         chrome_options = Options()
+        
+        # Basic Chrome options
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
@@ -98,15 +101,38 @@ class ETBWebDriverManager:
         chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--disable-plugins')
         chrome_options.add_argument('--disable-images')
+        
+        # Enhanced anti-detection measures
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # More realistic user agent
         chrome_options.add_argument(
             '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
         )
-        # Add ETB-specific headers
+        
+        # Additional anti-bot protection evasion
         chrome_options.add_argument('--accept-language=en-US,en;q=0.9')
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+        chrome_options.add_argument('--disable-logging')
+        chrome_options.add_argument('--disable-default-apps')
+        chrome_options.add_argument('--disable-sync')
+        chrome_options.add_argument('--no-first-run')
+        
+        # Prefs to make browser appear more natural
+        prefs = {
+            "profile.default_content_setting_values": {
+                "notifications": 2
+            },
+            "profile.managed_default_content_settings": {
+                "images": 2
+            }
+        }
+        chrome_options.add_experimental_option("prefs", prefs)
+        
         return chrome_options
     
     def _try_system_chromedriver(self, chrome_options: Options) -> bool:
@@ -114,8 +140,7 @@ class ETBWebDriverManager:
         try:
             service = Service('/usr/bin/chromedriver')
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            # Disable automation detection for ETB sites
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            self._apply_anti_detection_measures()
             return True
         except Exception as e:
             print(f"[{get_timestamp()}] Failed to setup Chrome driver with system chromedriver: {str(e)}")
@@ -129,13 +154,86 @@ class ETBWebDriverManager:
         try:
             service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            # Disable automation detection for ETB sites
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            self._apply_anti_detection_measures()
             return True
         except Exception as e:
             print(f"[{get_timestamp()}] Failed to setup Chrome driver with webdriver manager: {str(e)}")
             return False
     
+    def _apply_anti_detection_measures(self):
+        """Apply comprehensive anti-detection measures to the driver."""
+        try:
+            # Disable webdriver property
+            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            
+            # Override plugins and languages
+            self.driver.execute_script("""
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+            """)
+            
+            # Set realistic chrome runtime
+            self.driver.execute_script("""
+                window.chrome = {
+                    runtime: {}
+                };
+            """)
+            
+            # Override permissions
+            self.driver.execute_script("""
+                const originalQuery = window.navigator.permissions.query;
+                return window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+            """)
+            
+        except Exception as e:
+            print(f"[{get_timestamp()}] Warning: Could not apply all anti-detection measures: {str(e)}")
+
+    def is_blocked_by_protection(self, page_source: str, page_title: str) -> Tuple[bool, str]:
+        """Check if the page is blocked by anti-bot protection systems."""
+        page_source_lower = page_source.lower()
+        page_title_lower = page_title.lower() if page_title else ""
+        
+        # Incapsula detection
+        if "incapsula incident id" in page_source_lower:
+            incident_match = page_source_lower.find("incapsula incident id")
+            return True, "Incapsula"
+        
+        # Cloudflare detection
+        cloudflare_indicators = [
+            "cloudflare ray id",
+            "checking your browser",
+            "please enable cookies",
+            "ddos protection by cloudflare",
+            "attention required! | cloudflare"
+        ]
+        for indicator in cloudflare_indicators:
+            if indicator in page_source_lower or indicator in page_title_lower:
+                return True, "Cloudflare"
+        
+        # Generic bot detection
+        bot_indicators = [
+            "access denied",
+            "blocked by security",
+            "suspicious activity",
+            "rate limit exceeded",
+            "temporarily unavailable",
+            "security check",
+            "human verification"
+        ]
+        for indicator in bot_indicators:
+            if indicator in page_source_lower or indicator in page_title_lower:
+                return True, "Generic Anti-bot"
+        
+        return False, ""
+
     def quit_driver(self):
         """Quit the WebDriver instance."""
         if self.driver:
@@ -1268,6 +1366,113 @@ class InternationalETBScraper:
         if not self.base_url:
             print(f"[{get_timestamp()}] Warning: SCRAPING_URL_INTL_ETB environment variable not set")
     
+    def _handle_protection_retry(self, protection_type: str) -> bool:
+        """Handle anti-bot protection with retry strategies."""
+        print(f"[{get_timestamp()}] Attempting to bypass {protection_type} protection...")
+        
+        retry_strategies = [
+            ("Wait and reload", self._retry_wait_and_reload),
+            ("Clear cookies and retry", self._retry_clear_cookies),
+            ("Random delay retry", self._retry_random_delay),
+        ]
+        
+        for strategy_name, strategy_func in retry_strategies:
+            try:
+                print(f"[{get_timestamp()}] Trying strategy: {strategy_name}")
+                success = strategy_func()
+                if success:
+                    print(f"[{get_timestamp()}] SUCCESS: {strategy_name} worked")
+                    return True
+                else:
+                    print(f"[{get_timestamp()}] FAILED: {strategy_name} did not work")
+            except Exception as e:
+                print(f"[{get_timestamp()}] ERROR in {strategy_name}: {str(e)}")
+                continue
+        
+        return False
+    
+    def _retry_wait_and_reload(self) -> bool:
+        """Wait longer and reload the page."""
+        try:
+            print(f"[{get_timestamp()}] Waiting 10 seconds before reload...")
+            time.sleep(10)
+            self.webdriver_manager.driver.refresh()
+            time.sleep(8)
+            
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            is_blocked, _ = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            return not is_blocked
+        except Exception:
+            return False
+    
+    def _retry_clear_cookies(self) -> bool:
+        """Clear cookies and reload."""
+        try:
+            print(f"[{get_timestamp()}] Clearing cookies and reloading...")
+            self.webdriver_manager.driver.delete_all_cookies()
+            time.sleep(3)
+            self.webdriver_manager.driver.get(self.base_url)
+            time.sleep(8)
+            
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            is_blocked, _ = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            return not is_blocked
+        except Exception:
+            return False
+    
+    def _retry_random_delay(self) -> bool:
+        """Wait a random delay and retry."""
+        try:
+            delay = random.uniform(5, 15)
+            print(f"[{get_timestamp()}] Random delay of {delay:.1f} seconds...")
+            time.sleep(delay)
+            self.webdriver_manager.driver.refresh()
+            time.sleep(5)
+            
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            is_blocked, _ = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            return not is_blocked
+        except Exception:
+            return False
+
+    def _check_page_health(self) -> Tuple[bool, str]:
+        """Check if the page loaded properly and isn't blocked."""
+        try:
+            page_source = self.webdriver_manager.driver.page_source
+            page_title = self.webdriver_manager.driver.title
+            page_source_length = len(page_source)
+            
+            # Check for anti-bot protection first
+            is_blocked, protection_type = self.webdriver_manager.is_blocked_by_protection(page_source, page_title)
+            if is_blocked:
+                return False, f"Blocked by {protection_type} protection"
+            
+            # Check for very small page content (likely incomplete load)
+            if page_source_length < 500:
+                return False, f"Page content too small ({page_source_length} chars) - possible loading issue"
+            
+            # Check for empty or suspicious title
+            if not page_title or len(page_title.strip()) == 0:
+                return False, "Empty page title - possible loading issue"
+            
+            # Check if page has minimal HTML structure
+            essential_tags = ['body', 'div']
+            missing_tags = []
+            for tag in essential_tags:
+                if f'<{tag}' not in page_source.lower():
+                    missing_tags.append(tag)
+            
+            if missing_tags:
+                return False, f"Missing essential HTML tags: {missing_tags}"
+            
+            return True, "Page appears healthy"
+            
+        except Exception as e:
+            return False, f"Error checking page health: {str(e)}"
+
     def scrape_products(self) -> List[Dict[str, Any]]:
         """Main scraping flow for ETB sites."""
         if not self.base_url:
@@ -1307,30 +1512,80 @@ class InternationalETBScraper:
             # Comprehensive page loading validation
             current_url = self.webdriver_manager.driver.current_url
             page_title = self.webdriver_manager.driver.title
-            page_source_length = len(self.webdriver_manager.driver.page_source)
+            page_source = self.webdriver_manager.driver.page_source
+            page_source_length = len(page_source)
             
             print(f"[{get_timestamp()}] Page loaded - URL: {current_url}")
             print(f"[{get_timestamp()}] Page title: '{page_title}'")
             print(f"[{get_timestamp()}] Page source size: {page_source_length} characters")
             
-            # Check for obvious loading issues
-            if page_source_length < 1000:
-                print(f"[{get_timestamp()}] WARNING: Page source very small - possible loading issue")
+            # Check overall page health
+            page_healthy, health_message = self._check_page_health()
+            print(f"[{get_timestamp()}] Page health check: {health_message}")
             
-            if not page_title or len(page_title.strip()) == 0:
-                print(f"[{get_timestamp()}] WARNING: Page title is empty - possible loading issue")
+            if not page_healthy:
+                if "Blocked by" in health_message:
+                    protection_type = health_message.split("Blocked by ")[1].split(" protection")[0]
+                    print(f"[{get_timestamp()}] === ANTI-BOT PROTECTION DETECTED ===")
+                    print(f"[{get_timestamp()}] Protection type: {protection_type}")
+                    print(f"[{get_timestamp()}] Page source sample: {page_source[:200]}...")
+                    print(f"[{get_timestamp()}] ==========================================")
+                    
+                    # Try retry strategies
+                    retry_success = self._handle_protection_retry(protection_type)
+                    if not retry_success:
+                        print(f"[{get_timestamp()}] ERROR: Unable to bypass {protection_type} protection")
+                        print(f"[{get_timestamp()}] TROUBLESHOOTING:")
+                        print(f"[{get_timestamp()}] 1. The site has enhanced anti-bot protection")
+                        print(f"[{get_timestamp()}] 2. Try using a different network/IP address")
+                        print(f"[{get_timestamp()}] 3. Consider using residential proxies")
+                        print(f"[{get_timestamp()}] 4. The site may need manual browser access first")
+                        print(f"[{get_timestamp()}] 5. Try running the scraper from a different environment")
+                        return []
+                    
+                    # If retry successful, recheck page health
+                    page_healthy, health_message = self._check_page_health()
+                    print(f"[{get_timestamp()}] Post-retry page health: {health_message}")
+                else:
+                    # Non-protection related issue
+                    print(f"[{get_timestamp()}] WARNING: Page loading issue detected")
+                    print(f"[{get_timestamp()}] Issue: {health_message}")
+                    print(f"[{get_timestamp()}] Attempting to continue with limited functionality...")
+            
+            # Update page info after any retries
+            current_url = self.webdriver_manager.driver.current_url
+            page_title = self.webdriver_manager.driver.title
+            page_source = self.webdriver_manager.driver.page_source
+            page_source_length = len(page_source)
             
             # Wait for products to load with enhanced detection
             print(f"[{get_timestamp()}] Initiating product detection...")
             product_elements = self.product_extractor.wait_for_products_to_load(timeout=30)
             
             if not product_elements:
+                # Check one more time if we're being blocked
+                final_page_source = self.webdriver_manager.driver.page_source
+                final_page_title = self.webdriver_manager.driver.title
+                is_still_blocked, final_protection_type = self.webdriver_manager.is_blocked_by_protection(
+                    final_page_source, final_page_title
+                )
+                
                 print(f"[{get_timestamp()}] === NO PRODUCTS FOUND ===")
+                if is_still_blocked:
+                    print(f"[{get_timestamp()}] CAUSE: Page is still blocked by {final_protection_type} protection")
+                    print(f"[{get_timestamp()}] Page content sample: {final_page_source[:150]}...")
+                else:
+                    print(f"[{get_timestamp()}] Page appears to have loaded but no products detected")
+                    
                 print(f"[{get_timestamp()}] TROUBLESHOOTING SUMMARY:")
                 print(f"[{get_timestamp()}] 1. Check if the website is accessible manually")
-                print(f"[{get_timestamp()}] 2. The site might use heavy JavaScript/SPA - check browser console")
-                print(f"[{get_timestamp()}] 3. Site might have anti-bot protection")
-                print(f"[{get_timestamp()}] 4. CSS selectors might be outdated")
+                if is_still_blocked:
+                    print(f"[{get_timestamp()}] 2. Site is using {final_protection_type} anti-bot protection")
+                    print(f"[{get_timestamp()}] 3. Try accessing from a different IP/network")
+                    print(f"[{get_timestamp()}] 4. Consider using residential proxies")
+                else:
+                    print(f"[{get_timestamp()}] 2. The site might use heavy JavaScript/SPA - check browser console")
+                    print(f"[{get_timestamp()}] 3. CSS selectors might be outdated for this site")
                 print(f"[{get_timestamp()}] 5. Check debug screenshots in /tmp/debug_screenshots/")
                 print(f"[{get_timestamp()}] ============================")
                 return []

@@ -143,6 +143,51 @@ pip install webdriver-manager>=4.0.2
 pip install -r requirements_intl.txt
 ```
 
+### Anti-Bot Protection Issues
+
+#### Incapsula Protection Detected
+**Symptoms:** 
+- Page shows "Request unsuccessful. Incapsula incident ID: [ID]"
+- Very small page source (< 100 characters)
+- Empty or minimal page title
+
+**Solutions:**
+1. **Network/IP Change:** Try running from a different network or VPS
+2. **Residential Proxies:** Use residential proxy services
+3. **Manual Browser Access:** Visit the site manually in a browser first
+4. **Different Environment:** Try from a different server/location
+5. **Rate Limiting:** Wait longer between requests
+
+#### Cloudflare Protection Detected
+**Symptoms:**
+- Page title: "Attention Required! | Cloudflare" 
+- Content about "checking your browser" or "please enable cookies"
+
+**Solutions:**
+1. **Wait and Retry:** Cloudflare may allow access after waiting
+2. **Different User Agent:** Try different browser user agents
+3. **Proxy Rotation:** Use rotating proxy services
+4. **CAPTCHA Services:** Consider CAPTCHA solving services for automated workflows
+
+#### Generic Anti-Bot Detection
+**Symptoms:**
+- "Access denied" or "blocked by security" messages
+- "Suspicious activity" warnings
+- Rate limit exceeded errors
+
+**Solutions:**
+1. **Reduce Request Frequency:** Add longer delays between requests
+2. **Randomize Behavior:** Use random delays and different patterns
+3. **Browser Emulation:** Ensure full browser emulation is working
+4. **Session Management:** Properly handle cookies and session state
+
+#### Best Practices for Anti-Bot Evasion
+- **Respect robots.txt** and site terms of service
+- **Use reasonable delays** between requests (5-15 seconds)
+- **Monitor for protection changes** as sites update their security
+- **Have fallback strategies** when protection is detected
+- **Consider legal alternatives** like official APIs when available
+
 ## Files
 
 - `scraper_intl.py` - Main international scraper module
