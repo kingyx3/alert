@@ -152,40 +152,7 @@ class ETBProductExtractor:
     
     # ETB-specific selectors for international sites
     ETB_PRODUCT_SELECTORS = [
-        # Common ETB product container patterns
-        '[data-product-id]',
-        '.product-item',
-        '.product-card', 
-        '.item-card',
-        '.product-container',
-        '.product-tile',
-        '.grid-item',
-        '[class*="product"]',
-        '[class*="item-"]',
-        '.product',
-        # ETB specific patterns
-        '.etb-product',
-        '.etb-item',
-        '[data-etb-product]',
-        # Additional common e-commerce patterns
-        '.listing-item',
-        '.search-result',
-        '.product-box',
-        '.item-box',
-        '.catalog-item',
-        '.shop-item',
-        '[data-item-id]',
-        '[data-sku]',
-        '.merchandise',
-        '.goods-item',
-        # More generic patterns for broader coverage
-        'article[class*="product"]',
-        'div[class*="product"]',
-        'li[class*="product"]',
-        'div[id*="product"]',
-        # Very broad patterns (use carefully)
-        'a[href*="/product"]',
-        'a[href*="/item"]'
+        "div.product--feNDW"
     ]
     
     ETB_TITLE_SELECTORS = [
@@ -259,12 +226,11 @@ class ETBProductExtractor:
             time.sleep(2)
             
             # Try ETB-specific selectors with individual timeouts
-            for selector in self.ETB_PRODUCT_SELECTORS:
+            for selector in ETB_PRODUCT_SELECTORS:
                 try:
-                    # Give each selector a reasonable timeout (2 seconds)
                     wait = WebDriverWait(self.driver, 2)
                     elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
-                    if elements and len(elements) > 0:
+                    if elements:
                         print(f"[{get_timestamp()}] Found {len(elements)} products using selector: {selector}")
                         return elements
                 except TimeoutException:
