@@ -4,6 +4,14 @@ International scraper module for ETB sites using custom selenium-based scraping.
 
 This module uses the SCRAPING_URL_INTL_ETB environment variable and implements
 custom scraping components specifically designed for international ETB e-commerce sites.
+
+Dependencies:
+    Install required packages with: pip install -r requirements_intl.txt
+    
+Requirements:
+    - selenium>=4.36.0
+    - webdriver-manager>=4.0.2
+    - Chrome browser (for WebDriver)
 """
 
 import os
