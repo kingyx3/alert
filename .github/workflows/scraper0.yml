@@ -55,6 +55,8 @@ jobs:
         sleep 0
 
     - name: Run scraper
+      id: scraper1
+      continue-on-error: true
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
@@ -64,6 +66,8 @@ jobs:
         python scraper.py
       
     - name: Run scraper2
+      id: scraper2
+      continue-on-error: true
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
@@ -71,3 +75,14 @@ jobs:
       run: |
         source .venv/bin/activate
         python scraper2.py
+
+    - name: Check scraper results
+      run: |
+        echo "Scraper 1 result: ${{ steps.scraper1.outcome }}"
+        echo "Scraper 2 result: ${{ steps.scraper2.outcome }}"
+        if [[ "${{ steps.scraper1.outcome }}" == "failure" || "${{ steps.scraper2.outcome }}" == "failure" ]]; then
+          echo "At least one scraper failed. Failing the workflow."
+          exit 1
+        else
+          echo "All scrapers completed successfully."
+        fi
