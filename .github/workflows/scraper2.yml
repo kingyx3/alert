@@ -1,0 +1,38 @@
+name: Scraper2
+
+on:
+  workflow_dispatch: # Allow manual triggering
+    inputs:
+      scraping_url_2:
+        description: 'URL to scrape for scraper2'
+        required: false
+        type: string
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+    
+    # - name: Install dependencies
+    #   run: |
+    #     python -m pip install --upgrade pip
+    #     pip install -r requirements.txt
+        
+    - name: Run scraper2
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        SCRAPING_URL_2: ${{ inputs.scraping_url_2 || vars.SCRAPING_URL_2 }}
+      run: |
+        python scraper2.py

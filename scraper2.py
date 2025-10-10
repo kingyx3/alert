@@ -13,8 +13,8 @@ from scraper_common import (
 )
 
 def main():
-    print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
-    url = os.environ.get("SCRAPING_URL")
+    print(f"[{get_timestamp()}] Scraper2 starting (simplified JSON fetch)...")
+    url = os.environ.get("SCRAPING_URL_2")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
     payload = fetch_json(url)
@@ -27,7 +27,7 @@ def main():
         print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
         # Save the raw payload for inspection
         try:
-            debug_fn = f"raw_payload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            debug_fn = f"raw_payload_scraper2_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             with open(debug_fn, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
             print(f"[{get_timestamp()}] Raw payload saved to {debug_fn} for debugging.")
@@ -62,7 +62,7 @@ def main():
     # Save results to JSON if any available products found
     if available_products:
         print(f"[{get_timestamp()}] Available products found: {len(available_products)}")
-        filename = f"available_products_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"available_products_scraper2_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(available_products, f, indent=2, ensure_ascii=False)
@@ -72,7 +72,7 @@ def main():
     else:
         print(f"[{get_timestamp()}] No available products found.")
 
-    print(f"[{get_timestamp()}] Scraper completed.")
+    print(f"[{get_timestamp()}] Scraper2 completed.")
 
 if __name__ == "__main__":
     main()
