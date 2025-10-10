@@ -7,7 +7,7 @@ from datetime import datetime
 # Import shared components
 from scraper_common import (
     get_timestamp,
-    fetch_json, 
+    fetch_json_with_raw_text, 
     extract_products_from_payload,
     filter_available_products
 )
@@ -33,7 +33,7 @@ def main():
     url = os.environ.get("SCRAPING_URL_2")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
-    payload = fetch_json(url, headers=SCRAPER2_HEADERS)
+    payload, raw_text = fetch_json_with_raw_text(url, headers=SCRAPER2_HEADERS)
     if payload is None:
         print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
         return
@@ -41,6 +41,13 @@ def main():
     products = extract_products_from_payload(payload)
     if not products:
         print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
+        
+        # Log the first 10000 characters of the page
+        if raw_text:
+            page_preview = raw_text[:10000]
+            print(f"[{get_timestamp()}] First 10000 characters of page content:")
+            print(page_preview)
+        
         # Save the raw payload for inspection
         try:
             debug_fn = f"raw_payload_scraper2_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
