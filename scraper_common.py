@@ -164,6 +164,8 @@ def log_all_products_sorted(products: List[Dict[str, Any]]) -> None:
         price_show = product.get('priceShow', 'N/A')
         if not price_show and 'price' in product and product['price'] is not None:
             price_show = f"${product['price']:.2f}"
+        elif not price_show:
+            price_show = 'N/A'
         
         in_stock = product.get('inStock', False)
         stock_status = "✅ Available" if in_stock else "❌ Not Available"
