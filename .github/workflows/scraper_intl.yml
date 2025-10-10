@@ -16,23 +16,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-environment
       with:
         python-version: '3.9'
+        use-cache: 'false'
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
-    
-    # - name: Install dependencies
-    #   run: |
-    #     python -m pip install --upgrade pip
-    #     pip install -r requirements.txt
-        
-    - name: Run international ETB scraper
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-        SCRAPING_URL_INTL: ${{ inputs.scraping_url_intl || vars.SCRAPING_URL_INTL }}
-      run: |
-        python scraper_intl.py
+    - name: Run Scrapers
+      uses: ./.github/actions/run-scrapers
+      with:
+        delay-seconds: '0'
+        use-venv: 'false'
+        run-scraper1: 'false'
+        run-scraper2: 'false'
+        run-scraper-intl: 'true'
+        scraping-url-intl: ${{ inputs.scraping_url_intl || vars.SCRAPING_URL_INTL }}
+        telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        telegram-channel-id: ${{ secrets.TELEGRAM_CHANNEL_ID }}

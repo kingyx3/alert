@@ -1,0 +1,53 @@
+name: 'Setup Python Environment'
+description: 'Sets up Python, caching, and installs dependencies'
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.9'
+  use-cache:
+    description: 'Whether to use pip and venv caching'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Restore pip & venv cache
+      if: ${{ inputs.use-cache == 'true' }}
+      id: cache-pip-venv
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/pip
+          .venv
+        key: ${{ runner.os }}-pip-${{ inputs.python-version }}-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ inputs.python-version }}-
+
+    - name: Create virtualenv (if missing and caching enabled)
+      if: ${{ inputs.use-cache == 'true' }}
+      shell: bash
+      run: |
+        if [ ! -d ".venv" ]; then
+          python -m venv .venv
+        fi
+
+    - name: Install dependencies (with cache check)
+      if: ${{ inputs.use-cache == 'true' && steps.cache-pip-venv.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        source .venv/bin/activate
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install dependencies (without cache)
+      if: ${{ inputs.use-cache != 'true' }}
+      shell: bash
+      run: pip install -r requirements.txt

@@ -16,23 +16,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Setup Python Environment
+      uses: ./.github/actions/setup-python-environment
       with:
         python-version: '3.9'
+        use-cache: 'false'
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
-    
-    # - name: Install dependencies
-    #   run: |
-    #     python -m pip install --upgrade pip
-    #     pip install -r requirements.txt
-        
-    - name: Run scraper2
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
-        SCRAPING_URL_2: ${{ inputs.scraping_url_2 || vars.SCRAPING_URL_2 }}
-      run: |
-        python scraper2.py
+    - name: Run Scrapers
+      uses: ./.github/actions/run-scrapers
+      with:
+        delay-seconds: '0'
+        use-venv: 'false'
+        run-scraper1: 'false'
+        run-scraper2: 'true'
+        run-scraper-intl: 'false'
+        scraping-url-2: ${{ inputs.scraping_url_2 || vars.SCRAPING_URL_2 }}
+        telegram-bot-token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        telegram-channel-id: ${{ secrets.TELEGRAM_CHANNEL_ID }}
