@@ -35,7 +35,7 @@ def main():
         except Exception as e:
             print(f"[{get_timestamp()}] Failed to save raw payload: {e}")
         
-        return raise RuntimeError(f"Page raw text: {raw_text}")
+        raise RuntimeError(f"Page raw text: {raw_text}")
 
     # Log all products after sorting (even if they aren't available)
     from scraper_common import log_all_products_sorted
