@@ -7,6 +7,10 @@ on:
         description: 'URL to scrape'
         required: false
         type: string
+      scraping_url_2:
+        description: 'URL to scrape for scraper2'
+        required: false
+        type: string
 
 jobs:
   scrape:
@@ -47,10 +51,10 @@ jobs:
 
     - name: Delay before starting scraper
       run: |
-        echo "Waiting 30 seconds before running scraper..."
-        sleep 30
+        echo "Waiting 0 seconds before running scraper..."
+        sleep 0
 
-    - name: Ensure venv activated and run scraper
+    - name: Run scraper
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
@@ -58,3 +62,12 @@ jobs:
       run: |
         source .venv/bin/activate
         python scraper.py
+      
+    - name: Run scraper2
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        SCRAPING_URL_2: ${{ inputs.scraping_url_2 || vars.SCRAPING_URL_2 }}
+      run: |
+        source .venv/bin/activate
+        python scraper2.py
