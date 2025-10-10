@@ -1,0 +1,139 @@
+name: 'Run Scrapers'
+description: 'Executes scrapers with configurable delay and options'
+
+inputs:
+  delay-seconds:
+    description: 'Seconds to wait before starting scrapers'
+    required: false
+    default: '0'
+  use-venv:
+    description: 'Whether to use virtual environment'
+    required: false
+    default: 'false'
+  run-scraper1:
+    description: 'Whether to run scraper.py'
+    required: false
+    default: 'true'
+  run-scraper2:
+    description: 'Whether to run scraper2.py'
+    required: false
+    default: 'true'
+  run-scraper-intl:
+    description: 'Whether to run scraper_intl.py'
+    required: false
+    default: 'false'
+  scraping-url:
+    description: 'URL for scraper.py'
+    required: false
+    default: ''
+  scraping-url-2:
+    description: 'URL for scraper2.py'
+    required: false
+    default: ''
+  scraping-url-intl:
+    description: 'URL for scraper_intl.py'
+    required: false
+    default: ''
+  telegram-bot-token:
+    description: 'Telegram bot token'
+    required: true
+  telegram-channel-id:
+    description: 'Telegram channel ID'
+    required: true
+
+outputs:
+  scraper1-result:
+    description: 'Result of scraper1 execution'
+    value: ${{ steps.scraper1.outcome }}
+  scraper2-result:
+    description: 'Result of scraper2 execution'
+    value: ${{ steps.scraper2.outcome }}
+  scraper-intl-result:
+    description: 'Result of scraper_intl execution'
+    value: ${{ steps.scraper-intl.outcome }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Delay before starting scrapers
+      if: ${{ inputs.delay-seconds != '0' }}
+      shell: bash
+      run: |
+        echo "Waiting ${{ inputs.delay-seconds }} seconds before running scrapers..."
+        sleep ${{ inputs.delay-seconds }}
+
+    - name: Run scraper.py
+      if: ${{ inputs.run-scraper1 == 'true' }}
+      id: scraper1
+      continue-on-error: true
+      shell: bash
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
+        TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
+        SCRAPING_URL: ${{ inputs.scraping-url }}
+      run: |
+        if [[ "${{ inputs.use-venv }}" == "true" ]]; then
+          source .venv/bin/activate
+        fi
+        python scraper.py
+      
+    - name: Run scraper2.py
+      if: ${{ inputs.run-scraper2 == 'true' }}
+      id: scraper2
+      continue-on-error: true
+      shell: bash
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
+        TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
+        SCRAPING_URL_2: ${{ inputs.scraping-url-2 }}
+      run: |
+        if [[ "${{ inputs.use-venv }}" == "true" ]]; then
+          source .venv/bin/activate
+        fi
+        python scraper2.py
+
+    - name: Run scraper_intl.py
+      if: ${{ inputs.run-scraper-intl == 'true' }}
+      id: scraper-intl
+      continue-on-error: true
+      shell: bash
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
+        TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
+        SCRAPING_URL_INTL: ${{ inputs.scraping-url-intl }}
+      run: |
+        if [[ "${{ inputs.use-venv }}" == "true" ]]; then
+          source .venv/bin/activate
+        fi
+        python scraper_intl.py
+
+    - name: Check scraper results
+      if: ${{ inputs.run-scraper1 == 'true' || inputs.run-scraper2 == 'true' }}
+      shell: bash
+      run: |
+        failed=false
+        
+        if [[ "${{ inputs.run-scraper1 }}" == "true" ]]; then
+          echo "Scraper 1 result: ${{ steps.scraper1.outcome }}"
+          if [[ "${{ steps.scraper1.outcome }}" == "failure" ]]; then
+            failed=true
+          fi
+        fi
+        
+        if [[ "${{ inputs.run-scraper2 }}" == "true" ]]; then
+          echo "Scraper 2 result: ${{ steps.scraper2.outcome }}"
+          if [[ "${{ steps.scraper2.outcome }}" == "failure" ]]; then
+            failed=true
+          fi
+        fi
+        
+        if [[ "${{ inputs.run-scraper-intl }}" == "true" ]]; then
+          echo "International Scraper result: ${{ steps.scraper-intl.outcome }}"
+        fi
+        
+        if [[ "$failed" == "true" ]]; then
+          echo "At least one scraper failed. Failing the workflow."
+          exit 1
+        else
+          echo "All enabled scrapers completed successfully."
+        fi
