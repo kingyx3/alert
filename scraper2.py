@@ -12,12 +12,28 @@ from scraper_common import (
     filter_available_products
 )
 
+# Custom headers for scraper2.py based on Lazada requirements (excluding cookies and session-specific data)
+SCRAPER2_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Priority": "u=1, i",
+    "Referer": "https://www.lazada.sg/",
+    "Sec-Ch-Ua": '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0"
+}
+
 def main():
     print(f"[{get_timestamp()}] Scraper2 starting (simplified JSON fetch)...")
     url = os.environ.get("SCRAPING_URL_2")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
-    payload = fetch_json(url)
+    payload = fetch_json(url, headers=SCRAPER2_HEADERS)
     if payload is None:
         print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
         return
