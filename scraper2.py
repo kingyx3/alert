@@ -51,6 +51,10 @@ def main():
             print(f"[{get_timestamp()}] Failed to save raw payload: {e}")
         return
 
+    # Log all products after sorting (even if they aren't available)
+    from scraper_common import log_all_products_sorted
+    log_all_products_sorted(products)
+
     available_products = filter_available_products(products)
 
     # Log total and available products count before notifications

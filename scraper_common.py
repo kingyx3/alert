@@ -143,3 +143,49 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     """
     available = [p for p in products if p.get("inStock") is True]
     return available
+
+def log_all_products_sorted(products: List[Dict[str, Any]]) -> None:
+    """
+    Log all products (available and unavailable) sorted alphabetically by name.
+    This provides a comprehensive view of all scraped products.
+    """
+    if not products:
+        print(f"[{get_timestamp()}] No products to display.")
+        return
+    
+    # Sort products alphabetically by name (same as notification service)
+    sorted_products = sorted(products, key=lambda x: x.get('name', '').lower())
+    
+    print(f"[{get_timestamp()}] All products found (sorted alphabetically):")
+    print(f"[{get_timestamp()}] {'='*80}")
+    
+    for idx, product in enumerate(sorted_products, 1):
+        name = product.get('name', 'Unknown Product')
+        price_show = product.get('priceShow', 'N/A')
+        if not price_show and 'price' in product and product['price'] is not None:
+            price_show = f"${product['price']:.2f}"
+        elif not price_show:
+            price_show = 'N/A'
+        
+        in_stock = product.get('inStock', False)
+        stock_status = "✅ Available" if in_stock else "❌ Not Available"
+        
+        sold = product.get('sold', '')
+        sold_text = f' - {sold}' if sold else ''
+        
+        url = product.get('url', 'No URL')
+        
+        print(f"[{get_timestamp()}] {idx:3d}. {name} ({price_show}){sold_text}")
+        print(f"[{get_timestamp()}]      Status: {stock_status}")
+        print(f"[{get_timestamp()}]      URL: {url}")
+        
+        # Add a separator line for readability except for the last item
+        if idx < len(sorted_products):
+            print(f"[{get_timestamp()}] {'-'*80}")
+    
+    print(f"[{get_timestamp()}] {'='*80}")
+    
+    # Summary statistics
+    available_count = sum(1 for p in products if p.get('inStock', False))
+    unavailable_count = len(products) - available_count
+    print(f"[{get_timestamp()}] Total products: {len(products)} (Available: {available_count}, Unavailable: {unavailable_count})")
