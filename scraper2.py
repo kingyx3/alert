@@ -33,13 +33,21 @@ def main():
     url = os.environ.get("SCRAPING_URL_2")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
-    payload = fetch_json(url, headers=SCRAPER2_HEADERS)
+     payload, raw_text = fetch_json(url, headers=SCRAPER2_HEADERS)
     if payload is None:
         print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
         return
 
     products = extract_products_from_payload(payload)
     if not products:
+        print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
+
+        # Log the first 10000 characters of the page
+        if raw_text:
+            page_preview = raw_text[:10000]
+            print(f"[{get_timestamp()}] First 10000 characters of page content:")
+            print(page_preview)
+
         print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
         # Save the raw payload for inspection
         try:

@@ -38,12 +38,12 @@ def get_timestamp() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def fetch_json(url: str,
-               headers: Optional[Dict[str, str]] = None,
-               retries: int = DEFAULT_RETRIES,
-               backoff: float = DEFAULT_BACKOFF,
-               timeout: int = DEFAULT_TIMEOUT) -> Optional[Dict[str, Any]]:
+                           headers: Optional[Dict[str, str]] = None,
+                           retries: int = DEFAULT_RETRIES,
+                           backoff: float = DEFAULT_BACKOFF,
+                           timeout: int = DEFAULT_TIMEOUT) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
-    Fetch JSON from `url` with retries. Returns parsed JSON dict or None.
+    Fetch JSON from `url` with retries. Returns tuple of (parsed JSON dict or None, raw text or None).
     Uses requests if available, otherwise urllib.
     """
     headers = headers or DEFAULT_HEADERS
@@ -64,7 +64,7 @@ def fetch_json(url: str,
             # Try parse JSON
             try:
                 data = json.loads(text)
-                return data
+                return data, text
             except json.JSONDecodeError:
                 # Lazada sometimes returns HTML containing a JSON blob or anti-bot page
                 print(f"[{get_timestamp()}] Failed to parse JSON on attempt {attempt+1}.")
@@ -78,7 +78,7 @@ def fetch_json(url: str,
                 if start != -1:
                     try:
                         data = json.loads(text[start:])
-                        return data
+                        return data, text
                     except json.JSONDecodeError:
                         pass
                 raise
@@ -88,7 +88,7 @@ def fetch_json(url: str,
             print(f"[{get_timestamp()}] Fetch attempt {attempt} failed: {e}. Retrying in {wait:.1f}s...")
             time.sleep(wait)
     print(f"[{get_timestamp()}] All {retries} fetch attempts failed for {url}")
-    return None
+    return None, None
 
 def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
