@@ -36,36 +36,31 @@ except Exception:
     import urllib.parse as _urllib_parse  # type: ignore
     _HAS_REQUESTS = False
 
-# Rotate between multiple realistic user agents (updated to recent versions)
+# Rotate between multiple realistic user agents (updated to match Pokemon Center compatible versions)
 USER_AGENTS = [
+    # Exact match from Pokemon Center browser headers
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0",
+    # Additional compatible user agents for variety
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15"
 ]
 
 def get_realistic_headers(referer: Optional[str] = None) -> Dict[str, str]:
-    """Generate realistic browser headers with random user agent."""
+    """Generate realistic browser headers with random user agent, optimized for Pokemon Center API."""
     user_agent = random.choice(USER_AGENTS)
     
     headers = {
         "User-Agent": user_agent,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept": "application/json",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br, zstd",
-        "DNT": "1",
         "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Cache-Control": "max-age=0"
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin"
     }
-    
-    # Add Priority header for modern browsers
-    headers["Priority"] = "u=0, i"
     
     if referer:
         headers["Referer"] = referer
@@ -73,20 +68,27 @@ def get_realistic_headers(referer: Optional[str] = None) -> Dict[str, str]:
         if referer.startswith("http"):
             headers["Sec-Fetch-Site"] = "cross-site"
     
-    # Add browser-specific headers based on user agent
+    # Add browser-specific headers based on user agent - using Pokemon Center compatible versions
     if "Chrome" in user_agent and "Edg" in user_agent:
-        # Microsoft Edge
+        # Microsoft Edge - match the provided browser headers
         headers.update({
-            "sec-ch-ua": '"Microsoft Edge";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+            "sec-ch-ua": '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"' if "Windows" in user_agent else '"macOS"'
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-ch-ua-arch": '"x86"',
+            "sec-ch-ua-full-version-list": '"Microsoft Edge";v="141.0.3537.57", "Not?A_Brand";v="8.0.0.0", "Chromium";v="141.0.7390.55"',
+            "sec-ch-ua-model": '""',
+            "sec-ch-device-memory": "8"
         })
     elif "Chrome" in user_agent:
-        # Google Chrome
+        # Google Chrome - similar headers but Chrome branded
         headers.update({
             "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"' if "Windows" in user_agent else '"macOS"'
+            "sec-ch-ua-platform": '"Windows"' if "Windows" in user_agent else '"macOS"',
+            "sec-ch-ua-arch": '"x86"',
+            "sec-ch-ua-model": '""',
+            "sec-ch-device-memory": "8"
         })
     elif "Safari" in user_agent and "Chrome" not in user_agent:
         # Safari doesn't use sec-ch-ua headers
@@ -94,6 +96,9 @@ def get_realistic_headers(referer: Optional[str] = None) -> Dict[str, str]:
     elif "Firefox" in user_agent:
         # Firefox doesn't use sec-ch-ua headers
         pass
+    
+    # Add Pokemon Center specific header
+    headers["x-store-scope"] = "pokemon"
     
     return headers
 
