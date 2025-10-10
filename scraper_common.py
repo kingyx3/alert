@@ -38,16 +38,19 @@ def get_timestamp() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 def fetch_json(url: str,
-                           headers: Optional[Dict[str, str]] = None,
-                           retries: int = DEFAULT_RETRIES,
-                           backoff: float = DEFAULT_BACKOFF,
-                           timeout: int = DEFAULT_TIMEOUT) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+               headers: Optional[Dict[str, str]] = None,
+               retries: int = DEFAULT_RETRIES,
+               backoff: float = DEFAULT_BACKOFF,
+               timeout: int = DEFAULT_TIMEOUT) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     """
     Fetch JSON from `url` with retries. Returns tuple of (parsed JSON dict or None, raw text or None).
     Uses requests if available, otherwise urllib.
+    Raises RuntimeError if all attempts fail.
     """
     headers = headers or DEFAULT_HEADERS
     attempt = 0
+    last_exception = None
+
     while attempt < retries:
         try:
             if _HAS_REQUESTS:
@@ -61,17 +64,17 @@ def fetch_json(url: str,
                 req = _urllib_request.Request(url, headers=headers)
                 with _urllib_request.urlopen(req, timeout=timeout) as r:
                     text = r.read().decode("utf-8")
+
             # Try parse JSON
             try:
                 data = json.loads(text)
                 return data, text
             except json.JSONDecodeError:
-                # Lazada sometimes returns HTML containing a JSON blob or anti-bot page
                 print(f"[{get_timestamp()}] Failed to parse JSON on attempt {attempt+1}.")
-                # Print the response content for debugging (truncate if too long)
                 response_preview = (text[:JSON_CONTENT_PREVIEW_LENGTH] + "..." 
-                                 if len(text) > JSON_CONTENT_PREVIEW_LENGTH else text)
+                                    if len(text) > JSON_CONTENT_PREVIEW_LENGTH else text)
                 print(f"[{get_timestamp()}] Response content: {response_preview}")
+
                 # Attempt to locate JSON substring as a last resort
                 json_start_pattern = '{"mods"'
                 start = text.find(json_start_pattern)
@@ -82,13 +85,18 @@ def fetch_json(url: str,
                     except json.JSONDecodeError:
                         pass
                 raise
+
         except Exception as e:
+            last_exception = e
             attempt += 1
             wait = backoff * (2 ** (attempt - 1))
             print(f"[{get_timestamp()}] Fetch attempt {attempt} failed: {e}. Retrying in {wait:.1f}s...")
             time.sleep(wait)
-    print(f"[{get_timestamp()}] All {retries} fetch attempts failed for {url}")
-    return None, None
+
+    # After all retries fail
+    error_msg = f"[{get_timestamp()}] All {retries} fetch attempts failed for {url}"
+    print(error_msg)
+    raise RuntimeError(f"{error_msg}. Last error: {last_exception}")
 
 def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
