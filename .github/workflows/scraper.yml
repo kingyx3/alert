@@ -7,7 +7,10 @@ on:
         description: 'URL to scrape'
         required: false
         type: string
-
+      scraping_url_2:
+        description: 'URL to scrape for scraper2'
+        required: false
+        type: string
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -36,3 +39,11 @@ jobs:
         SCRAPING_URL: ${{ inputs.scraping_url || vars.SCRAPING_URL }}
       run: |
         python scraper.py
+
+    - name: Run scraper2
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+        SCRAPING_URL_2: ${{ inputs.scraping_url_2 || vars.SCRAPING_URL_2 }}
+      run: |
+        python scraper2.py
