@@ -17,7 +17,7 @@ def main():
     url = os.environ.get("SCRAPING_URL")
     print(f"[{get_timestamp()}] Fetching: {url}")
 
-    payload, raw_text = fetch_json(url, headers=SCRAPER2_HEADERS)
+    payload, raw_text = fetch_json(url)
     if payload is None:
         print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
         return
