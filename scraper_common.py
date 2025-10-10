@@ -96,7 +96,6 @@ def fetch_json(url: str,
     # After all retries fail
     error_msg = f"[{get_timestamp()}] All {retries} fetch attempts failed for {url}"
     print(error_msg)
-    raise RuntimeError(f"{error_msg}. Last error: {last_exception}")
 
 def extract_products_from_payload(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """

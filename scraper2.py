@@ -42,22 +42,16 @@ def main():
     if not products:
         print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
 
-        # Log the first 10000 characters of the page
-        if raw_text:
-            page_preview = raw_text[:10000]
-            print(f"[{get_timestamp()}] First 10000 characters of page content:")
-            print(page_preview)
-
-        print(f"[{get_timestamp()}] No products found in payload. The site may have returned an anti-bot page or different format.")
         # Save the raw payload for inspection
         try:
-            debug_fn = f"raw_payload_scraper2_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            debug_fn = f"raw_payload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             with open(debug_fn, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2, ensure_ascii=False)
             print(f"[{get_timestamp()}] Raw payload saved to {debug_fn} for debugging.")
         except Exception as e:
             print(f"[{get_timestamp()}] Failed to save raw payload: {e}")
-        return
+        
+        return raise RuntimeError(f"Page raw text: {raw_text}")
 
     # Log all products after sorting (even if they aren't available)
     from scraper_common import log_all_products_sorted
