@@ -301,7 +301,7 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
 
 def simulate_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
     """
-    Simulate browser navigation by first visiting a referrer page, then the target.
+    Simulate browser navigation by first visiting Pokemon Center TCG category page, then the target.
     This helps avoid bot detection when clicking links vs direct URL access.
     """
     if not target_url:
@@ -309,21 +309,15 @@ def simulate_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
         
     print(f"[{get_timestamp()}] Simulating browser navigation to avoid bot detection...")
     
-    # First, simulate visiting a search engine or referrer page
-    referrer_urls = [
-        "https://www.google.com/",
-        "https://www.bing.com/", 
-        "https://duckduckgo.com/"
-    ]
+    # First, simulate visiting the Pokemon Center TCG cards category page
+    pokemon_center_referrer = "https://www.pokemoncenter.com/category/tcg-cards?category=tcg-cards"
+    print(f"[{get_timestamp()}] Simulating visit from Pokemon Center referrer: {pokemon_center_referrer}")
     
-    referrer = random.choice(referrer_urls)
-    print(f"[{get_timestamp()}] Simulating visit from referrer: {referrer}")
-    
-    # Add a realistic delay as if browsing from referrer
+    # Add a realistic delay as if browsing from the category page
     human_delay(1.0, 3.0)
     
-    # Now fetch the target URL with the referrer set
-    headers = get_realistic_headers(referrer)
+    # Now fetch the target URL with the Pokemon Center category page as referrer
+    headers = get_realistic_headers(pokemon_center_referrer)
     return fetch_json(target_url, headers=headers, use_session=True)
 
 def main():
