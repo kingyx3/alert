@@ -463,15 +463,29 @@ def selenium_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
                     print(f"[{get_timestamp()}] Successfully fetched JSON with browser cookies")
                     return data
                 except json.JSONDecodeError:
-                    # Try to extract JSON from response text
+                    # Try to extract JSON from response text using brace-counting
                     text = response.text
                     json_start_pattern = '{"mods"'
                     start = text.find(json_start_pattern)
                     if start != -1:
                         try:
-                            data = json.loads(text[start:])
-                            print(f"[{get_timestamp()}] Successfully extracted JSON substring from response")
-                            return data
+                            # Use the same brace-counting logic as in page source extraction
+                            brace_count = 0
+                            json_end = start
+                            for i, char in enumerate(text[start:]):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        json_end = start + i + 1
+                                        break
+                            
+                            if json_end > start:
+                                json_str = text[start:json_end]
+                                data = json.loads(json_str)
+                                print(f"[{get_timestamp()}] Successfully extracted JSON substring from response")
+                                return data
                         except json.JSONDecodeError:
                             pass
         
