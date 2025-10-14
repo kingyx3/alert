@@ -283,9 +283,20 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     """
     Returns subset of products that are considered 'available'.
     Here we treat products with inStock == True as available.
+    Additionally, only products containing "TCG" or "Trading" in their name are considered.
     You can adjust logic (e.g., price not None, or stock > 0).
     """
-    available = [p for p in products if p.get("inStock") is True]
+    def contains_tcg_or_trading(product_name: str) -> bool:
+        """Check if product name contains 'TCG' or 'Trading' (case-insensitive)."""
+        if not product_name:
+            return False
+        name_lower = product_name.lower()
+        return "tcg" in name_lower or "trading" in name_lower
+    
+    available = [
+        p for p in products 
+        if p.get("inStock") is True and contains_tcg_or_trading(p.get("name", ""))
+    ]
     return available
 
 def simulate_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
