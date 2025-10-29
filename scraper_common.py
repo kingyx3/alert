@@ -146,19 +146,39 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     """
     Returns subset of products that are considered 'available'.
     Here we treat products with inStock == True as available.
-    Additionally, only products containing "TCG" or "Trading" in their name are considered.
+    
+    PRODUCT NAME FILTER:
+    By default, only products containing "TCG" or "Trading" in their name are considered.
+    This can be customized via the PRODUCT_NAME_FILTERS environment variable:
+    - Set to comma-separated keywords: PRODUCT_NAME_FILTERS="TCG,Trading,Pokemon"
+    - Set to empty string to disable filtering: PRODUCT_NAME_FILTERS=""
+    - Default: "TCG,Trading" if not set
+    
     You can adjust logic (e.g., price not None, or stock > 0).
     """
-    def contains_tcg_or_trading(product_name: str) -> bool:
-        """Check if product name contains 'TCG' or 'Trading' (case-insensitive)."""
+    def contains_filter_keywords(product_name: str) -> bool:
+        """Check if product name contains any of the configured filter keywords (case-insensitive)."""
         if not product_name:
             return False
+        
+        # Get filter keywords from environment variable, default to "TCG,Trading"
+        filter_keywords_str = os.environ.get("PRODUCT_NAME_FILTERS", "TCG,Trading")
+        
+        # If empty string, disable filtering (return True for all products)
+        if not filter_keywords_str.strip():
+            return True
+        
+        # Parse comma-separated keywords and check if any match
+        keywords = [kw.strip().lower() for kw in filter_keywords_str.split(",") if kw.strip()]
+        if not keywords:
+            return True  # If no valid keywords, don't filter
+        
         name_lower = product_name.lower()
-        return "tcg" in name_lower or "trading" in name_lower
+        return any(keyword in name_lower for keyword in keywords)
     
     available = [
         p for p in products 
-        if p.get("inStock") is True and contains_tcg_or_trading(p.get("name", ""))
+        if p.get("inStock") is True and contains_filter_keywords(p.get("name", ""))
     ]
     return available
 
