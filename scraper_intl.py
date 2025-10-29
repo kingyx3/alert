@@ -21,6 +21,9 @@ import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
+# Import shared filter keyword utility from scraper_common
+from scraper_common import get_filter_keywords
+
 # Constants
 DEFAULT_RETRIES = 3
 DEFAULT_BACKOFF = 1.0
@@ -299,17 +302,12 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
         if not product_name:
             return False
         
-        # Get filter keywords from environment variable, default to "TCG,Trading"
-        filter_keywords_str = os.environ.get("PRODUCT_NAME_FILTERS", "TCG,Trading")
+        # Get filter keywords using cached utility function from scraper_common
+        keywords = get_filter_keywords()
         
-        # If empty string, disable filtering (return True for all products)
-        if not filter_keywords_str.strip():
-            return True
-        
-        # Parse comma-separated keywords and check if any match
-        keywords = [kw.strip().lower() for kw in filter_keywords_str.split(",") if kw.strip()]
+        # If empty list, no filtering (return True for all products)
         if not keywords:
-            return True  # If no valid keywords, don't filter
+            return True
         
         name_lower = product_name.lower()
         return any(keyword in name_lower for keyword in keywords)

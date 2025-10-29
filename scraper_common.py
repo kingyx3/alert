@@ -33,6 +33,35 @@ DEFAULT_HEADERS = {
     "Referer": "https://www.lazada.sg/",
 }
 
+# Cache for parsed filter keywords to avoid repeated parsing
+_FILTER_KEYWORDS_CACHE: Optional[tuple[str, List[str]]] = None
+
+def get_filter_keywords() -> List[str]:
+    """
+    Get the list of filter keywords from PRODUCT_NAME_FILTERS environment variable.
+    Results are cached to avoid repeated parsing.
+    
+    Returns:
+        List of lowercase filter keywords. Empty list means no filtering.
+    """
+    global _FILTER_KEYWORDS_CACHE
+    
+    # Get current environment variable value
+    filter_keywords_str = os.environ.get("PRODUCT_NAME_FILTERS", "TCG,Trading")
+    
+    # Check if we have a cached value for this exact string
+    if _FILTER_KEYWORDS_CACHE is not None and _FILTER_KEYWORDS_CACHE[0] == filter_keywords_str:
+        return _FILTER_KEYWORDS_CACHE[1]
+    
+    # Parse and cache the keywords
+    if not filter_keywords_str.strip():
+        keywords = []  # Empty list means no filtering (return all in-stock products)
+    else:
+        keywords = [kw.strip().lower() for kw in filter_keywords_str.split(",") if kw.strip()]
+    
+    _FILTER_KEYWORDS_CACHE = (filter_keywords_str, keywords)
+    return keywords
+
 def get_timestamp() -> str:
     """Return current timestamp in ISO format."""
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -161,17 +190,12 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
         if not product_name:
             return False
         
-        # Get filter keywords from environment variable, default to "TCG,Trading"
-        filter_keywords_str = os.environ.get("PRODUCT_NAME_FILTERS", "TCG,Trading")
+        # Get filter keywords using cached utility function
+        keywords = get_filter_keywords()
         
-        # If empty string, disable filtering (return True for all products)
-        if not filter_keywords_str.strip():
-            return True
-        
-        # Parse comma-separated keywords and check if any match
-        keywords = [kw.strip().lower() for kw in filter_keywords_str.split(",") if kw.strip()]
+        # If empty list, no filtering (return True for all products)
         if not keywords:
-            return True  # If no valid keywords, don't filter
+            return True
         
         name_lower = product_name.lower()
         return any(keyword in name_lower for keyword in keywords)
