@@ -34,6 +34,9 @@ DEFAULT_HEADERS = {
 }
 
 # Cache for parsed filter keywords to avoid repeated parsing
+# Note: This uses a simple global cache suitable for single-threaded scraper execution.
+# The cache automatically invalidates when the environment variable changes.
+# For multi-threaded use cases, consider thread-safe alternatives like functools.lru_cache.
 _FILTER_KEYWORDS_CACHE: Optional[tuple[str, List[str]]] = None
 
 def get_filter_keywords() -> List[str]:
