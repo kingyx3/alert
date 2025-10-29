@@ -150,11 +150,11 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     You can adjust logic (e.g., price not None, or stock > 0).
     """
     def contains_tcg_or_trading(product_name: str) -> bool:
-        """Check if product name contains 'TCG' or 'Trading' (case-insensitive)."""
+        """Check if product name contains 'Original TCG' or 'Trading' (case-insensitive)."""
         if not product_name:
             return False
         name_lower = product_name.lower()
-        return "tcg" in name_lower or "trading" in name_lower
+        return "original tcg" in name_lower or "trading" in name_lower
     
     available = [
         p for p in products 
