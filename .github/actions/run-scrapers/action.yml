@@ -77,35 +77,35 @@ runs:
         fi
         python scraper.py
       
-    # - name: Run scraper2.py
-    #   if: ${{ inputs.run-scraper2 == 'true' }}
-    #   id: scraper2
-    #   continue-on-error: true
-    #   shell: bash
-    #   env:
-    #     TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
-    #     TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
-    #     SCRAPING_URL_2: ${{ inputs.scraping-url-2 }}
-    #   run: |
-    #     if [[ "${{ inputs.use-venv }}" == "true" ]]; then
-    #       source .venv/bin/activate
-    #     fi
-    #     python scraper2.py
+    - name: Run scraper2.py
+      if: ${{ inputs.run-scraper2 == 'true' }}
+      id: scraper2
+      continue-on-error: true
+      shell: bash
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
+        TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
+        SCRAPING_URL_2: ${{ inputs.scraping-url-2 }}
+      run: |
+        if [[ "${{ inputs.use-venv }}" == "true" ]]; then
+          source .venv/bin/activate
+        fi
+        python scraper2.py
 
-    # - name: Run scraper_intl.py
-    #   if: ${{ inputs.run-scraper-intl == 'true' }}
-    #   id: scraper-intl
-    #   continue-on-error: true
-    #   shell: bash
-    #   env:
-    #     TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
-    #     TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
-    #     SCRAPING_URL_INTL: ${{ inputs.scraping-url-intl }}
-    #   run: |
-    #     if [[ "${{ inputs.use-venv }}" == "true" ]]; then
-    #       source .venv/bin/activate
-    #     fi
-    #     python scraper_intl.py
+    - name: Run scraper_intl.py
+      if: ${{ inputs.run-scraper-intl == 'true' }}
+      id: scraper-intl
+      continue-on-error: true
+      shell: bash
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ inputs.telegram-bot-token }}
+        TELEGRAM_CHANNEL_ID: ${{ inputs.telegram-channel-id }}
+        SCRAPING_URL_INTL: ${{ inputs.scraping-url-intl }}
+      run: |
+        if [[ "${{ inputs.use-venv }}" == "true" ]]; then
+          source .venv/bin/activate
+        fi
+        python scraper_intl.py
 
     - name: Check scraper results
       if: ${{ inputs.run-scraper1 == 'true' || inputs.run-scraper2 == 'true' }}
