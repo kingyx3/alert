@@ -32,7 +32,7 @@ jobs:
         delay-seconds: '40'
         use-venv: 'true'
         run-scraper1: 'true'
-        run-scraper2: 'true'
+        run-scraper2: 'false'
         run-scraper-intl: 'false'
         scraping-url: ${{ inputs.scraping_url || vars.SCRAPING_URL }}
         scraping-url-2: ${{ inputs.scraping_url_2 || vars.SCRAPING_URL_2 }}
