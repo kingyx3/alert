@@ -37,6 +37,25 @@ except Exception:
     import urllib.parse as _urllib_parse  # type: ignore
     _HAS_REQUESTS = False
 
+# Optional: use selenium if available for browser automation
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from webdriver_manager.chrome import ChromeDriverManager
+    _HAS_SELENIUM = True
+except Exception:
+    _HAS_SELENIUM = False
+    # Create mock classes to prevent import errors
+    class Options:
+        def add_argument(self, arg): pass
+    class Service:
+        def __init__(self, path): pass
+    webdriver = None
+
 # Rotate between multiple realistic user agents (updated to match Pokemon Center compatible versions)
 USER_AGENTS = [
     # Exact match from Pokemon Center browser headers
@@ -111,6 +130,8 @@ def get_timestamp() -> str:
 
 # Global session for maintaining cookies and state
 _SESSION = None
+# Global WebDriver instance
+_WEBDRIVER = None
 
 def get_session():
     """Get or create a requests session with browser-like configuration."""
@@ -127,6 +148,61 @@ def human_delay(min_delay: float = 0.5, max_delay: float = 2.0):
     """Add random delay to mimic human browsing behavior."""
     delay = random.uniform(min_delay, max_delay)
     time.sleep(delay)
+
+def get_chrome_options() -> Options:
+    """Configure Chrome options for headless scraping."""
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--window-size=1920,1080')
+    chrome_options.add_argument('--disable-extensions')
+    chrome_options.add_argument('--disable-plugins')
+    chrome_options.add_argument('--disable-images')
+    # Use one of our realistic user agents
+    user_agent = random.choice(USER_AGENTS)
+    chrome_options.add_argument(f'--user-agent={user_agent}')
+    # Additional anti-detection settings
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    return chrome_options
+
+def setup_webdriver() -> bool:
+    """Setup Chrome WebDriver with anti-bot detection measures."""
+    global _WEBDRIVER
+    if not _HAS_SELENIUM:
+        print(f"[{get_timestamp()}] Selenium not available - cannot use browser automation")
+        return False
+    
+    if _WEBDRIVER is not None:
+        return True  # Already set up
+    
+    try:
+        chrome_options = get_chrome_options()
+        service = Service(ChromeDriverManager().install())
+        _WEBDRIVER = webdriver.Chrome(service=service, options=chrome_options)
+        
+        # Execute script to hide webdriver property
+        _WEBDRIVER.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        print(f"[{get_timestamp()}] WebDriver setup successful")
+        return True
+    except Exception as e:
+        print(f"[{get_timestamp()}] Failed to setup WebDriver: {str(e)}")
+        return False
+
+def quit_webdriver():
+    """Safely quit the WebDriver."""
+    global _WEBDRIVER
+    if _WEBDRIVER:
+        try:
+            _WEBDRIVER.quit()
+        except Exception:
+            pass
+        finally:
+            _WEBDRIVER = None
 
 def fetch_json(url: str,
                headers: Optional[Dict[str, str]] = None,
@@ -300,10 +376,132 @@ def filter_available_products(products: List[Dict[str, Any]]) -> List[Dict[str, 
     ]
     return available
 
+def selenium_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Use Selenium to actually navigate to Pokemon Center, then to the target URL.
+    This provides the most realistic browser behavior to avoid bot detection.
+    """
+    if not target_url:
+        return None
+        
+    print(f"[{get_timestamp()}] Starting Selenium browser navigation to avoid bot detection...")
+    
+    # Setup WebDriver if not already done
+    if not setup_webdriver():
+        print(f"[{get_timestamp()}] WebDriver setup failed, falling back to HTTP simulation")
+        return simulate_browser_navigation(target_url)
+    
+    try:
+        # Step 1: Visit Pokemon Center referrer page to establish session and cookies
+        print(f"[{get_timestamp()}] Navigating to Pokemon Center referrer: {POKEMON_CENTER_REFERRER_URL}")
+        _WEBDRIVER.get(POKEMON_CENTER_REFERRER_URL)
+        
+        # Wait for page to load and add realistic browsing delay
+        human_delay(2.0, 4.0)
+        
+        # Step 2: Navigate to the actual target URL
+        print(f"[{get_timestamp()}] Navigating to target URL: {target_url}")
+        _WEBDRIVER.get(target_url)
+        
+        # Wait for the page to load
+        human_delay(1.0, 3.0)
+        
+        # Step 3: Extract JSON from the page source or make request with browser session
+        page_source = _WEBDRIVER.page_source
+        
+        # Try to parse JSON from page source first
+        try:
+            # Look for JSON pattern in page source
+            json_start_pattern = '{"mods"'
+            start = page_source.find(json_start_pattern)
+            if start != -1:
+                # Try to extract and parse JSON - look for the complete JSON object
+                brace_count = 0
+                json_end = start
+                for i, char in enumerate(page_source[start:]):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = start + i + 1
+                            break
+                
+                if json_end > start:
+                    json_str = page_source[start:json_end]
+                    data = json.loads(json_str)
+                    print(f"[{get_timestamp()}] Successfully extracted JSON from page source")
+                    return data
+        except json.JSONDecodeError:
+            pass
+        
+        # Step 4: If JSON not found in page source, use browser cookies with requests
+        print(f"[{get_timestamp()}] JSON not found in page source, making request with browser cookies...")
+        
+        # Get cookies from selenium session
+        selenium_cookies = _WEBDRIVER.get_cookies()
+        
+        # Convert selenium cookies to requests format
+        cookies_dict = {}
+        for cookie in selenium_cookies:
+            cookies_dict[cookie['name']] = cookie['value']
+        
+        # Make request with cookies and headers from browser
+        headers = get_realistic_headers(POKEMON_CENTER_REFERRER_URL)
+        
+        if _HAS_REQUESTS:
+            session = get_session() if _SESSION else requests.Session()
+            # Update session with browser cookies
+            for name, value in cookies_dict.items():
+                session.cookies.set(name, value)
+            
+            response = session.get(target_url, headers=headers, timeout=DEFAULT_TIMEOUT)
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    print(f"[{get_timestamp()}] Successfully fetched JSON with browser cookies")
+                    return data
+                except json.JSONDecodeError:
+                    # Try to extract JSON from response text using brace-counting
+                    text = response.text
+                    json_start_pattern = '{"mods"'
+                    start = text.find(json_start_pattern)
+                    if start != -1:
+                        try:
+                            # Use the same brace-counting logic as in page source extraction
+                            brace_count = 0
+                            json_end = start
+                            for i, char in enumerate(text[start:]):
+                                if char == '{':
+                                    brace_count += 1
+                                elif char == '}':
+                                    brace_count -= 1
+                                    if brace_count == 0:
+                                        json_end = start + i + 1
+                                        break
+                            
+                            if json_end > start:
+                                json_str = text[start:json_end]
+                                data = json.loads(json_str)
+                                print(f"[{get_timestamp()}] Successfully extracted JSON substring from response")
+                                return data
+                        except json.JSONDecodeError:
+                            pass
+        
+        print(f"[{get_timestamp()}] Failed to extract JSON, page might be blocked or changed format")
+        return None
+        
+    except Exception as e:
+        print(f"[{get_timestamp()}] Error in Selenium navigation: {str(e)}")
+        print(f"[{get_timestamp()}] Falling back to HTTP simulation")
+        return simulate_browser_navigation(target_url)
+
 def simulate_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
     """
     Simulate browser navigation by first visiting Pokemon Center TCG category page, then the target.
     This helps avoid bot detection when clicking links vs direct URL access.
+    Fallback method when Selenium is not available or fails.
     """
     if not target_url:
         return None
@@ -321,15 +519,19 @@ def simulate_browser_navigation(target_url: str) -> Optional[Dict[str, Any]]:
     return fetch_json(target_url, headers=headers, use_session=True)
 
 def main():
-    print(f"[{get_timestamp()}] Scraper starting (simplified JSON fetch)...")
+    print(f"[{get_timestamp()}] Scraper starting (with Selenium browser automation)...")
     url = os.environ.get("SCRAPING_URL_INTL")
     print(f"[{get_timestamp()}] Target URL: {url}")
     
-    # Use enhanced navigation simulation to avoid bot detection
-    payload = simulate_browser_navigation(url)
-    if payload is None:
-        print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
-        return
+    try:
+        # Use Selenium-based browser navigation for better bot detection avoidance
+        payload = selenium_browser_navigation(url)
+        if payload is None:
+            print(f"[{get_timestamp()}] Failed to fetch or parse JSON payload. Exiting.")
+            return
+    finally:
+        # Always clean up WebDriver resources
+        quit_webdriver()
 
     products = extract_products_from_payload(payload)
     if not products:

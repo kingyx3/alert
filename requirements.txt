@@ -1,2 +1,4 @@
 requests>=2.31.0
 pytelegrambotapi>=4.14.0
+selenium>=4.36.0
+webdriver-manager>=4.0.2
