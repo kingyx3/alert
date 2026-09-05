@@ -1,6 +1,6 @@
 # Lazada Pokémon TCG Cloudflare monitor
 
-Cloudflare Worker + Durable Object restock monitor. The scheduled Worker wakes the singleton Durable Object every minute, while the Durable Object keeps its own 30-second alarm loop between cron ticks.
+Cloudflare Worker + Durable Object restock monitor. The scheduled Worker wakes the singleton Durable Object every minute as a watchdog, while the Durable Object keeps its own 5-second alarm loop between cron ticks when checks are healthy.
 
 The monitor is deliberately **block-aware, not block-evasive**: HTTP 403/429 or anti-bot challenge pages are logged, state is preserved, and checks back off. It does not rotate identities, solve CAPTCHAs, spoof browser fingerprints, use proxies, or otherwise bypass access controls.
 
@@ -10,7 +10,13 @@ The monitor is deliberately **block-aware, not block-evasive**: HTTP 403/429 or 
 - A Telegram alert is sent when a known SKU transitions from unavailable to available, or when a newly discovered TCG SKU is already available after baseline initialization.
 - Missing SKUs must be absent for two consecutive successful snapshots before being marked unavailable, reducing false restock alerts caused by transient/incomplete payloads.
 - Failed, blocked, or unparseable source responses never advance inventory state.
-- The normal target interval is 30 seconds. HTTP 403/429 and challenge responses trigger a longer backoff instead of retries intended to evade access controls.
+- The normal target interval is 5 seconds while checks are healthy. HTTP 403/429 and challenge responses trigger a 5-minute backoff instead of retries intended to evade access controls; ordinary failures use exponential backoff.
+
+## Polling cadence
+
+`CHECK_INTERVAL_SECONDS` defaults to `5` in `wrangler.toml`. The deployment entrypoint allows values down to 5 seconds while preserving the existing block/error backoff logic.
+
+Cloudflare Durable Object alarms support millisecond-granularity scheduling and normally execute close to their requested time, but they are not a hard real-time scheduler: maintenance or failover can delay an alarm. A 5-second target also produces roughly six times as many source checks as the previous 30-second cadence, so monitor Cloudflare usage and Lazada responses for rate limiting or blocking. The one-minute Cron Trigger remains a watchdog/bootstrap path rather than the primary polling loop.
 
 ## GitHub production environment setup
 
