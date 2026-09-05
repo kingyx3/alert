@@ -1,0 +1,25 @@
+name = "lazada-tcg-restock-monitor"
+main = "src/index.js"
+compatibility_date = "2026-09-05"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[durable_objects]
+bindings = [
+  { name = "MONITOR", class_name = "LazadaMonitor" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LazadaMonitor"]
+
+[vars]
+CHECK_INTERVAL_SECONDS = "30"
+BLOCK_BACKOFF_SECONDS = "300"
+ERROR_BACKOFF_SECONDS = "60"
+MISSING_CONFIRMATIONS = "2"
+TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
+ALERT_ON_FIRST_RUN = "false"
+ALLOW_EMPTY_TCG_SNAPSHOT = "false"
