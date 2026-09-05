@@ -31,9 +31,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate Worker syntax and Wrangler config
+      - name: Validate Worker syntax, active window, and Wrangler config
         run: |
           node --check src/index.js
+          node --check src/entry.js
+          node --test test/entry.test.mjs
           npx --yes wrangler@4.129.0 deploy --dry-run --outdir dist
 
   deploy:
