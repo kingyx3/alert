@@ -11,7 +11,7 @@ The monitor is deliberately **block-aware, not block-evasive**: HTTP 403/429 or 
 - Missing SKUs must be absent for two consecutive successful snapshots before being marked unavailable, reducing false restock alerts caused by transient/incomplete payloads.
 - Failed, blocked, or unparseable source responses never advance inventory state.
 - The normal target interval is 5 seconds while checks are healthy and the current time is within 08:00-24:00 SGT.
-- At midnight SGT, the monitor stops scheduling Durable Object alarms. The active-hours Cron Trigger wakes/bootstrap the monitor again from 08:00 SGT.
+- At midnight SGT, the monitor stops scheduling Durable Object alarms. The active-hours Cron Trigger bootstraps the monitor again at or just after 08:00 SGT.
 - HTTP 403/429 and challenge responses trigger a 5-minute backoff instead of retries intended to evade access controls; ordinary failures use exponential backoff.
 
 ## Polling cadence and active hours
