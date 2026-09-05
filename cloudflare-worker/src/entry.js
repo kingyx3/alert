@@ -7,12 +7,12 @@ function sgtDate(timestamp = Date.now()) {
   return new Date(timestamp + SGT_OFFSET_MS);
 }
 
-function isActiveSgt(timestamp = Date.now()) {
+export function isActiveSgt(timestamp = Date.now()) {
   // Active every day from 08:00:00 SGT through 23:59:59 SGT.
   return sgtDate(timestamp).getUTCHours() >= ACTIVE_START_HOUR_SGT;
 }
 
-function nextActiveStart(timestamp = Date.now()) {
+export function nextActiveStart(timestamp = Date.now()) {
   const local = sgtDate(timestamp);
   const year = local.getUTCFullYear();
   const month = local.getUTCMonth();
