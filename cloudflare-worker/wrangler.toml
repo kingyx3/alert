@@ -1,5 +1,5 @@
 name = "lazada-tcg-restock-monitor"
-main = "src/index.js"
+main = "src/entry.js"
 compatibility_date = "2026-09-05"
 workers_dev = true
 
@@ -16,7 +16,7 @@ tag = "v1"
 new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
-CHECK_INTERVAL_SECONDS = "30"
+CHECK_INTERVAL_SECONDS = "5"
 BLOCK_BACKOFF_SECONDS = "300"
 ERROR_BACKOFF_SECONDS = "60"
 MISSING_CONFIRMATIONS = "2"
