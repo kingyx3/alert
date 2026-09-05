@@ -46,10 +46,6 @@ class SourceBlocked(RuntimeError):
     pass
 
 
-class SourceParseError(RuntimeError):
-    pass
-
-
 def timestamp() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
@@ -60,6 +56,19 @@ def normalized_text(value: Any) -> str:
         c for c in unicodedata.normalize("NFKD", text)
         if not unicodedata.combining(c)
     )
+
+
+def parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = normalized_text(value).strip()
+    if text in {"true", "yes", "1", "available", "in stock"}:
+        return True
+    if text in {"false", "no", "0", "unavailable", "out of stock", "sold out", ""}:
+        return False
+    return bool(value)
 
 
 def keyword_list() -> List[str]:
@@ -122,9 +131,14 @@ def candidate_item_lists(node: Any) -> Iterable[List[Dict[str, Any]]]:
 
 def infer_in_stock(item: Dict[str, Any]) -> bool:
     if "inStock" in item:
-        return bool(item.get("inStock"))
+        return parse_bool(item.get("inStock"))
     if "soldOut" in item:
-        return not bool(item.get("soldOut"))
+        return not parse_bool(item.get("soldOut"))
+    if "isSoldOut" in item:
+        return not parse_bool(item.get("isSoldOut"))
+    for key in ("available", "isAvailable"):
+        if key in item:
+            return parse_bool(item.get(key))
 
     for key in ("stock", "stockCount", "quantity", "availableStock"):
         if key in item:
@@ -174,7 +188,7 @@ def extract_products(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     best: List[Dict[str, Any]] = []
     for items in candidate_item_lists(payload):
         normalized = [normalize_product(item) for item in items]
-        # Prefer the largest product-looking collection and avoid nested SKU option lists.
+        # Prefer the largest product-looking collection and avoid nested option lists.
         product_like = [
             p for p in normalized
             if p.get("name") and (p.get("url") or p.get("skuId") or p.get("sku"))
@@ -195,6 +209,16 @@ def product_key(product: Dict[str, Any]) -> str:
         if value not in (None, ""):
             return f"{field}:{value}"
     raise ValueError("Product has no stable identity")
+
+
+def stable_state_entry(product: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep only stable identity fields so sold-count/price changes do not churn state."""
+    return {
+        "name": product.get("name"),
+        "url": product.get("url"),
+        "skuId": product.get("skuId"),
+        "sku": product.get("sku"),
+    }
 
 
 def load_state() -> Dict[str, Any]:
@@ -230,6 +254,9 @@ def main() -> int:
     except requests.RequestException as exc:
         print(f"[{timestamp()}] Request failed: {exc}", file=sys.stderr)
         return 3
+    except RuntimeError as exc:
+        print(f"[{timestamp()}] Configuration error: {exc}", file=sys.stderr)
+        return 3
 
     if payload is None:
         preview = body[:300].replace("\n", " ")
@@ -245,10 +272,14 @@ def main() -> int:
         return 5
 
     tcg_products = [product for product in products if is_tcg_product(product)]
-    available = {
+    live_available = {
         product_key(product): product
         for product in tcg_products
         if product.get("inStock") is True
+    }
+    state_available = {
+        key: stable_state_entry(product)
+        for key, product in live_available.items()
     }
 
     previous = load_state()
@@ -256,15 +287,15 @@ def main() -> int:
     initialized = bool(previous.get("initialized"))
 
     if initialized:
-        restocked_keys = sorted(set(available) - set(previous_available))
+        restocked_keys = sorted(set(live_available) - set(previous_available))
     else:
-        restocked_keys = sorted(available) if ALERT_ON_FIRST_RUN else []
+        restocked_keys = sorted(live_available) if ALERT_ON_FIRST_RUN else []
 
-    restocked = [available[key] for key in restocked_keys]
+    restocked = [live_available[key] for key in restocked_keys]
 
     print(
         f"[{timestamp()}] Products={len(products)} TCG={len(tcg_products)} "
-        f"available={len(available)} new_restocks={len(restocked)}"
+        f"available={len(live_available)} new_restocks={len(restocked)}"
     )
 
     if restocked:
@@ -278,7 +309,13 @@ def main() -> int:
     else:
         print(f"[{timestamp()}] No new restock transitions")
 
-    save_state(available)
+    # Persist only when the actual available-set/identity changed. This avoids a
+    # commit every scheduled run just because the timestamp or sold count changed.
+    if not initialized or state_available != previous_available:
+        save_state(state_available)
+    else:
+        print(f"[{timestamp()}] Stock state unchanged; no state write needed")
+
     return 0
 
 
