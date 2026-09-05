@@ -1,6 +1,6 @@
 # Lazada Pokémon TCG Cloudflare monitor
 
-Cloudflare Worker + Durable Object restock monitor. The scheduled Worker wakes the singleton Durable Object every minute, while the Durable Object keeps its own 30-second alarm loop between cron ticks.
+Cloudflare Worker + Durable Object restock monitor. The Durable Object targets a 5-second alarm loop only between **08:00 and 24:00 Singapore time (SGT, UTC+8)**. A Cloudflare Cron Trigger runs every five minutes during that same active window as a watchdog/bootstrap path. No background polling is scheduled from 00:00 through 07:59 SGT.
 
 The monitor is deliberately **block-aware, not block-evasive**: HTTP 403/429 or anti-bot challenge pages are logged, state is preserved, and checks back off. It does not rotate identities, solve CAPTCHAs, spoof browser fingerprints, use proxies, or otherwise bypass access controls.
 
@@ -10,7 +10,27 @@ The monitor is deliberately **block-aware, not block-evasive**: HTTP 403/429 or 
 - A Telegram alert is sent when a known SKU transitions from unavailable to available, or when a newly discovered TCG SKU is already available after baseline initialization.
 - Missing SKUs must be absent for two consecutive successful snapshots before being marked unavailable, reducing false restock alerts caused by transient/incomplete payloads.
 - Failed, blocked, or unparseable source responses never advance inventory state.
-- The normal target interval is 30 seconds. HTTP 403/429 and challenge responses trigger a longer backoff instead of retries intended to evade access controls.
+- The normal target interval is 5 seconds while checks are healthy and the current time is within 08:00-24:00 SGT.
+- At midnight SGT, the monitor stops scheduling Durable Object alarms. The active-hours Cron Trigger bootstraps the monitor again at or just after 08:00 SGT.
+- HTTP 403/429 and challenge responses trigger a 5-minute backoff instead of retries intended to evade access controls; ordinary failures use exponential backoff.
+
+## Polling cadence and active hours
+
+`CHECK_INTERVAL_SECONDS` defaults to `5` in `wrangler.toml`. The deployment entrypoint allows values down to 5 seconds while preserving the existing block/error backoff logic.
+
+The monitor intentionally runs only **16 hours per day: 08:00-24:00 SGT**. Singapore is UTC+8 year-round, and Cloudflare Cron Triggers run in UTC, so the watchdog expression is:
+
+```text
+*/5 0-15 * * *
+```
+
+That means every five minutes from 00:00 through 15:59 UTC, equivalent to 08:00 through 23:59 SGT. The Cron Trigger is only a watchdog; the Durable Object alarms perform the 5-second checks between watchdog runs.
+
+At a continuously healthy 5-second cadence, limiting operation to 16 hours reduces the theoretical source-check count from about **17,280/day** to about **11,520/day**, a one-third reduction. The watchdog adds at most 192 scheduled runs per day instead of 1,440 with an every-minute 24-hour Cron.
+
+Cloudflare Durable Object alarms support millisecond-granularity scheduling and normally execute close to their requested time, but they are not a hard real-time scheduler: maintenance or failover can delay an alarm. Short polling intervals also increase invocation cost and source-request volume, so monitor Cloudflare usage and Lazada responses for rate limiting or blocking.
+
+Outside the active window, `/healthz` reports `status: "ok"` with `mode: "sleeping"` when there is no outstanding failure. `sleepingUntil` shows the next 08:00 SGT wake time. This avoids treating the intentional overnight pause as an unhealthy/stale monitor.
 
 ## GitHub production environment setup
 
@@ -108,10 +128,10 @@ The workflow can also be run manually with **Actions → Cloudflare Lazada TCG M
 
 ## Diagnostics
 
-- `GET /healthz` — public minimal health status.
-- `GET /debug` — detailed state, recent structured events, source metadata, and tracked SKUs. Requires `Authorization: Bearer <DEBUG_TOKEN>`.
-- `POST /check` — force an immediate check. Requires the same bearer token.
-- Cloudflare logs are structured JSON and include run IDs and events such as `source.fetch.ok`, `source.blocked`, `stock.diff`, `telegram.sent`, and `alarm.scheduled`.
+- `GET /healthz` — public minimal health status. During active hours it reports `mode: "active"`; overnight it reports `mode: "sleeping"` and `sleepingUntil`.
+- `GET /debug` — detailed state, recent structured events, source metadata, tracked SKUs, and the active-window configuration. Requires `Authorization: Bearer <DEBUG_TOKEN>`.
+- `POST /check` — force an immediate check during the active window. Outside 08:00-24:00 SGT it returns a skipped/sleeping result instead of starting the overnight polling loop. Requires the same bearer token.
+- Cloudflare logs are structured JSON and include run IDs and events such as `source.fetch.ok`, `source.blocked`, `stock.diff`, `telegram.sent`, `alarm.scheduled`, `monitor.sleep.scheduled`, and `monitor.sleeping`.
 - `npm run tail` streams Worker logs via Wrangler.
 
 Example authenticated debug calls after deployment:
