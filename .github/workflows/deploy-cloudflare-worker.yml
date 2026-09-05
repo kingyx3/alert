@@ -45,21 +45,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy Worker and sync runtime secrets
+      - name: Deploy Worker and sync runtime configuration
         id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: cloudflare-worker
           wranglerVersion: '4.129.0'
+          # These become encrypted Cloudflare Worker secret bindings at runtime.
+          # Some source values are GitHub Variables because they are not sensitive.
           secrets: |
             LAZADA_URL
             TELEGRAM_BOT_TOKEN
             TELEGRAM_CHANNEL_ID
             DEBUG_TOKEN
         env:
-          LAZADA_URL: ${{ secrets.LAZADA_URL }}
+          LAZADA_URL: ${{ vars.LAZADA_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
