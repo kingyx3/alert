@@ -4,7 +4,9 @@ compatibility_date = "2026-09-05"
 workers_dev = true
 
 [triggers]
-crons = ["* * * * *"]
+# Cloudflare Cron Triggers use UTC. 00:00-15:59 UTC = 08:00-23:59 SGT.
+# The Cron is only a watchdog; the Durable Object performs 5-second checks.
+crons = ["*/5 0-15 * * *"]
 
 [durable_objects]
 bindings = [
