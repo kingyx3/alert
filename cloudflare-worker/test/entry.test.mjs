@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isActiveSgt, nextActiveStart } from "../src/entry.js";
+import { blockBackoffSeconds, isActiveSgt, nextActiveStart } from "../src/entry.js";
 
 test("active window starts at 08:00 SGT", () => {
   assert.equal(isActiveSgt(Date.parse("2026-09-05T00:00:00.000Z")), true);
@@ -21,4 +21,11 @@ test("overnight sleep wakes at the next 08:00 SGT", () => {
     new Date(nextActiveStart(Date.parse("2026-09-05T23:30:00.000Z"))).toISOString(),
     "2026-09-06T00:00:00.000Z",
   );
+});
+
+test("block backoff grows from 15 to 30 to 60 minutes and caps", () => {
+  assert.equal(blockBackoffSeconds(1, 900), 900);
+  assert.equal(blockBackoffSeconds(2, 900), 1800);
+  assert.equal(blockBackoffSeconds(3, 900), 3600);
+  assert.equal(blockBackoffSeconds(10, 900), 3600);
 });
