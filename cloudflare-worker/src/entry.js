@@ -6,7 +6,7 @@ const DEFAULT_HEALTHY_INTERVAL_SECONDS = 30;
 const DEFAULT_RECOVERY_INTERVAL_SECONDS = 60;
 const DEFAULT_RECOVERY_SUCCESS_TARGET = 20;
 const DEFAULT_BLOCK_BACKOFF_SECONDS = 15 * 60;
-const MAX_BLOCK_BACKOFF_SECONDS = 60 * 60;
+const MAX_BLOCK_BACKOFF_SECONDS = 8 * 60 * 60;
 
 function asInt(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -39,7 +39,7 @@ export function blockBackoffSeconds(blockStreak, baseSeconds = DEFAULT_BLOCK_BAC
     MAX_BLOCK_BACKOFF_SECONDS,
     Math.max(5 * 60, Number(baseSeconds) || DEFAULT_BLOCK_BACKOFF_SECONDS),
   );
-  return Math.min(MAX_BLOCK_BACKOFF_SECONDS, base * 2 ** Math.min(streak - 1, 2));
+  return Math.min(MAX_BLOCK_BACKOFF_SECONDS, base * 2 ** Math.min(streak - 1, 5));
 }
 
 function monitorHealth(meta) {
@@ -74,8 +74,9 @@ function jsonResponse(payload, status = 200) {
 }
 
 // Conservative adaptive polling: 30s normally. A Lazada block/challenge backs off
-// 15m -> 30m -> 60m. After access recovers, poll at 60s for 20 clean checks,
-// then return to the 30-second healthy cadence. Checks only run 08:00-24:00 SGT.
+// 15m -> 30m -> 1h -> 2h -> 4h -> 8h, then remains capped at 8h.
+// After access recovers, poll at 60s for 20 clean checks, then return to the
+// 30-second healthy cadence. Checks only run 08:00-24:00 SGT.
 export class LazadaMonitor extends BaseLazadaMonitor {
   healthyIntervalMs() {
     return asInt(this.env.CHECK_INTERVAL_SECONDS, DEFAULT_HEALTHY_INTERVAL_SECONDS, 15, 3600) * 1000;
@@ -230,7 +231,8 @@ export class LazadaMonitor extends BaseLazadaMonitor {
         recoveryIntervalSeconds: this.recoveryIntervalMs() / 1000,
         recoverySuccessTarget: this.recoverySuccessTarget(),
         blockBackoffSeconds: baseBackoff,
-        blockBackoffSequenceSeconds: [1, 2, 3].map((streak) => blockBackoffSeconds(streak, baseBackoff)),
+        blockBackoffMaxSeconds: MAX_BLOCK_BACKOFF_SECONDS,
+        blockBackoffSequenceSeconds: [1, 2, 3, 4, 5, 6].map((streak) => blockBackoffSeconds(streak, baseBackoff)),
         activeWindowSgt: "08:00-24:00",
         backgroundChecksOutsideWindow: false,
       };
