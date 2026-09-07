@@ -5,7 +5,7 @@ workers_dev = true
 
 [triggers]
 # Cloudflare Cron Triggers use UTC. 00:00-15:59 UTC = 08:00-23:59 SGT.
-# The Cron is only a watchdog; the Durable Object performs 15-second checks.
+# The Cron is only a watchdog; the Durable Object performs adaptive source checks.
 crons = ["*/5 0-15 * * *"]
 
 [durable_objects]
@@ -18,8 +18,10 @@ tag = "v1"
 new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
-CHECK_INTERVAL_SECONDS = "15"
-BLOCK_BACKOFF_SECONDS = "300"
+CHECK_INTERVAL_SECONDS = "30"
+RECOVERY_INTERVAL_SECONDS = "60"
+RECOVERY_SUCCESS_TARGET = "20"
+BLOCK_BACKOFF_SECONDS = "900"
 ERROR_BACKOFF_SECONDS = "60"
 MISSING_CONFIRMATIONS = "2"
 TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
