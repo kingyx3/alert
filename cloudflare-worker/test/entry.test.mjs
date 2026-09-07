@@ -23,9 +23,12 @@ test("overnight sleep wakes at the next 08:00 SGT", () => {
   );
 });
 
-test("block backoff grows from 15 to 30 to 60 minutes and caps", () => {
+test("block backoff grows through eight hours and caps", () => {
   assert.equal(blockBackoffSeconds(1, 900), 900);
   assert.equal(blockBackoffSeconds(2, 900), 1800);
   assert.equal(blockBackoffSeconds(3, 900), 3600);
-  assert.equal(blockBackoffSeconds(10, 900), 3600);
+  assert.equal(blockBackoffSeconds(4, 900), 7200);
+  assert.equal(blockBackoffSeconds(5, 900), 14400);
+  assert.equal(blockBackoffSeconds(6, 900), 28800);
+  assert.equal(blockBackoffSeconds(10, 900), 28800);
 });
