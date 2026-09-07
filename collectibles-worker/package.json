@@ -1,0 +1,15 @@
+{
+  "name": "sg-collectibles-market-intel-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/index.js && node --check src/scoring.js && node --check src/sources.js",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "4.129.0"
+  }
+}

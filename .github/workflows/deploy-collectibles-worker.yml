@@ -1,0 +1,64 @@
+name: Cloudflare SG Collectibles Market Intel
+
+on:
+  pull_request:
+    paths:
+      - 'collectibles-worker/**'
+      - '.github/workflows/deploy-collectibles-worker.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'collectibles-worker/**'
+      - '.github/workflows/deploy-collectibles-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-sg-collectibles-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: collectibles-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Worker and scoring tests
+        run: |
+          npm test
+          npm run check
+          npx --yes wrangler@4.129.0 deploy --dry-run --outdir dist
+
+  deploy:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy collectibles market-intelligence Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: collectibles-worker
+          wranglerVersion: '4.129.0'
+          # Optional market/social API tokens are intentionally not required for deploy.
+          # Add them as Worker secrets when available (see collectibles-worker/README.md).
+          secrets: |
+            TELEGRAM_BOT_TOKEN
+            TELEGRAM_CHANNEL_ID
+            DEBUG_TOKEN
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
+          DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
