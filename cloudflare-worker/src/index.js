@@ -262,8 +262,7 @@ async function fetchSource(env) {
     method: "GET",
     redirect: "follow",
     headers: {
-      "user-agent": "kingyx3-alert/3.0 (+https://github.com/kingyx3/alert)",
-      accept: "application/json,text/html;q=0.9,*/*;q=0.8",
+      accept: "application/json, text/plain;q=0.9, */*;q=0.8",
       "accept-language": "en-SG,en;q=0.9",
     },
   });
@@ -273,6 +272,7 @@ async function fetchSource(env) {
   const metadata = {
     status: response.status,
     contentType: response.headers.get("content-type") || "",
+    retryAfter: response.headers.get("retry-after") || null,
     bytes: body.length,
     finalUrl: safeUrl(response.url || env.LAZADA_URL),
     fingerprint: bodyFingerprint(body),
