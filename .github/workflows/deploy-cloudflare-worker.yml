@@ -67,3 +67,35 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
+
+      - name: Kick-start monitor after deploy
+        env:
+          MONITOR_URL: ${{ steps.deploy.outputs['deployment-url'] }}
+          DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
+        run: |
+          set -euo pipefail
+          response_file="$(mktemp)"
+          http_code="$(
+            curl \
+              --silent \
+              --show-error \
+              --location \
+              --connect-timeout 10 \
+              --max-time 90 \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              --request POST \
+              --header "Authorization: Bearer ${DEBUG_TOKEN}" \
+              "${MONITOR_URL%/}/check"
+          )"
+
+          cat "$response_file"
+          echo
+
+          # /check returns 200 on a successful source check and 502 when the
+          # source check fails after scheduling its retry alarm. Both mean the
+          # Durable Object has been initialized and its alarm loop is armed.
+          if [[ "$http_code" != "200" && "$http_code" != "502" ]]; then
+            echo "Monitor kick-start returned HTTP ${http_code}" >&2
+            exit 1
+          fi
