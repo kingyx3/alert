@@ -2,32 +2,46 @@ export function shouldDeliverTelegramAlert(alert) {
   const s = alert?.scoring || {};
   if (s.action === "BUY" || s.action === "WATCH") return true;
 
-  // PASS rows may still be useful when they come from a concrete social post,
-  // but aggregated website/news pages are too broad to bypass opportunity scoring.
+  // PASS-level DROP alerts are social-first. A single social post is an atomic
+  // event; an aggregated website/news page is not reliable enough to imply a drop.
   if (s.action !== "PASS" || alert?.sourceKind !== "social" || !alert?.signalType) return false;
 
   const urgency = Number(s.urgencyScore || 0);
   const supplyRisk = Number(alert.supplyRisk || 0);
-  const demand = Number(s.demandScore || 0);
-  const score = Number(s.score || 0);
-  const strongSignal = Math.max(urgency, supplyRisk) >= 66;
-  const concreteContext = Boolean(alert.timingHint || alert.retailSgd || alert.marketSgd || supplyRisk >= 80);
-  return strongSignal && demand >= 45 && score >= 40 && concreteContext;
+  const hasDirectSource = Boolean(alert.url || alert.timingHint || alert.retailSgd || alert.marketSgd);
+
+  if (alert.signalType === "DROP") {
+    // Social drop/restock language is more impactful than a weak aggregate score,
+    // so do not require demand/overall-score thresholds when the post itself is strong.
+    return urgency >= 66 && hasDirectSource;
+  }
+
+  if (alert.signalType === "SUPPLY") {
+    return supplyRisk >= 80 && hasDirectSource;
+  }
+
+  return false;
 }
 
 export function buildTelegramMessage(alert) {
   const s = alert.scoring || {};
   const signalOnly = s.action === "PASS" && Boolean(alert.signalType);
+  const socialDrop = signalOnly && alert.sourceKind === "social" && alert.signalType === "DROP";
+  const socialSupply = signalOnly && alert.sourceKind === "social" && alert.signalType === "SUPPLY";
   const heading = s.action === "BUY"
     ? "🔥 BUY OPPORTUNITY"
     : s.action === "WATCH"
       ? "👀 WATCH"
-      : alert.signalType === "SUPPLY" ? "⚠️ SUPPLY CHECK" : "⚡ CHECK NOW";
+      : socialDrop
+        ? "📣 SOCIAL DROP"
+        : socialSupply
+          ? "📦 SOCIAL SUPPLY"
+          : alert.signalType === "SUPPLY" ? "⚠️ SUPPLY CHECK" : "⚡ CHECK NOW";
   const action = s.action === "BUY"
     ? "BUY"
     : s.action === "WATCH"
       ? "WATCH"
-      : alert.signalType === "SUPPLY" ? "RECHECK SUPPLY" : "CHECK NOW";
+      : alert.signalType === "SUPPLY" ? "RECHECK SUPPLY" : "CHECK DROP";
 
   const lines = [`${heading} · Score ${s.score ?? 0}/100`, alert.name, `Action: ${action}`, `Source: ${alert.sourceName}`];
   if (alert.location) lines.push(`Where: ${alert.location}`);
@@ -54,7 +68,7 @@ export function buildTelegramMessage(alert) {
     if (signalParts.length) lines.push(`Signal: ${signalParts.join(" · ")}`);
     lines.push(alert.signalType === "SUPPLY"
       ? "Next step: Re-check the source and supply/reprint details before buying or holding inventory."
-      : "Next step: Open the source and verify stock, price and timing before travelling or buying.");
+      : "Next step: Open the social post and verify stock, price and timing before travelling or buying.");
   }
 
   if (alert.reason?.length) lines.push(`Why: ${alert.reason.slice(0, 4).join("; ")}`);
