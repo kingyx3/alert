@@ -45,6 +45,19 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare Cloudflare Worker secrets
+        working-directory: collectibles-worker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
+          DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
+          TCG_API_KEY: ${{ secrets.TCG_API_KEY }}
+          PRICECHARTING_TOKEN: ${{ secrets.PRICECHARTING_TOKEN }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: node scripts/write-deploy-secrets.mjs .deploy-secrets.json
+
       - name: Deploy collectibles market-intelligence Worker
         uses: cloudflare/wrangler-action@v3
         with:
@@ -52,13 +65,9 @@ jobs:
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: collectibles-worker
           wranglerVersion: '4.129.0'
-          # Optional market/social API tokens are intentionally not required for deploy.
-          # Add them as Worker secrets when available (see collectibles-worker/README.md).
-          secrets: |
-            TELEGRAM_BOT_TOKEN
-            TELEGRAM_CHANNEL_ID
-            DEBUG_TOKEN
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
-          DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
+          command: deploy --secrets-file .deploy-secrets.json
+
+      - name: Remove temporary deploy secrets file
+        if: always()
+        working-directory: collectibles-worker
+        run: rm -f .deploy-secrets.json
