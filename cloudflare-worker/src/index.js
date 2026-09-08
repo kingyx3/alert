@@ -15,6 +15,25 @@ const BLOCK_MARKERS = [
   "are you a robot",
 ];
 
+const LAZADA_BROWSER_HEADERS = {
+  accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+  "accept-language": "en-US,en;q=0.9,en-SG;q=0.8",
+  "cache-control": "max-age=0",
+  dnt: "1",
+  priority: "u=0, i",
+  "sec-ch-ua": '"Chromium";v="152", "Not?A_Brand";v="24", "Microsoft Edge";v="152"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "none",
+  "sec-fetch-user": "?1",
+  "upgrade-insecure-requests": "1",
+  "user-agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36 Edg/152.0.0.0",
+};
+
 class SourceBlockedError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -258,27 +277,31 @@ function bodyFingerprint(body) {
 async function fetchSource(env) {
   if (!env.LAZADA_URL) throw new SourceParseError("LAZADA_URL Worker secret is not configured");
 
+  // Match the successful top-level Edge navigation request as closely as is
+  // reasonable from a Worker. Deliberately do not copy browser cookies/session
+  // tokens, and let the Workers runtime manage response compression.
   const response = await fetch(env.LAZADA_URL, {
     method: "GET",
     redirect: "follow",
-    headers: {
-      accept: "application/json, text/plain;q=0.9, */*;q=0.8",
-      "accept-language": "en-SG,en;q=0.9",
-    },
+    headers: LAZADA_BROWSER_HEADERS,
   });
 
   const body = await response.text();
   const lowerBody = body.toLowerCase();
+  const blockMarker = BLOCK_MARKERS.find((marker) => lowerBody.includes(marker)) || null;
   const metadata = {
     status: response.status,
     contentType: response.headers.get("content-type") || "",
     retryAfter: response.headers.get("retry-after") || null,
     bytes: body.length,
     finalUrl: safeUrl(response.url || env.LAZADA_URL),
+    redirected: response.redirected,
+    requestProfile: "browser-navigation",
+    blockMarker,
     fingerprint: bodyFingerprint(body),
   };
 
-  if ([403, 429].includes(response.status) || BLOCK_MARKERS.some((marker) => lowerBody.includes(marker))) {
+  if ([403, 429].includes(response.status) || blockMarker) {
     throw new SourceBlockedError("Source returned a rate-limit or anti-bot challenge; no bypass attempted", metadata);
   }
 
