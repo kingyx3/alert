@@ -2,6 +2,8 @@
 
 A separate Cloudflare Worker that discovers Singapore collectible drops, enriches them with secondary-market data, scores margin **and liquidity**, and sends Telegram alerts only when the opportunity clears configurable thresholds.
 
+The implementation is intentionally modular. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for extension points for market providers, social adapters, retailer parsers, storage/history sinks, and new collectible categories.
+
 ## What it watches by default
 
 Retail / procurement signals:
@@ -122,7 +124,6 @@ Example extra source:
 ]
 ```
 
-
 ## Cloudflare storage strategy
 
 D1 is **not required for v1**. This Worker already uses one named Durable Object (`CollectiblesMonitor`) with SQLite-backed persistent storage for:
@@ -133,7 +134,9 @@ D1 is **not required for v1**. This Worker already uses one named Durable Object
 - the persistent positive/negative market-data cache
 - recent ranked opportunities and events
 
-That keeps the deployment simple and gives the monitor strongly consistent state. Add D1 later when the project needs analytical history rather than just operational state — for example multi-month price observations, sell-through history, backtesting, portfolio/P&L, thousands of tracked products, or SQL queries across categories and retailers. The scoring and source adapters are kept independent so a D1 history sink can be added without replacing the Durable Object scheduler.
+That keeps the deployment simple and gives the monitor strongly consistent state. Operational persistence is isolated in `src/storage/state.js`, so adding D1 later does not require rewriting the scheduler.
+
+Add D1 when the project needs analytical history rather than just operational state — for example multi-month price observations, sell-through history, backtesting, portfolio/P&L, thousands of tracked products, or SQL queries across categories and retailers.
 
 ## Endpoints
 
@@ -141,7 +144,6 @@ That keeps the deployment simple and gives the monitor strongly consistent state
 - `GET /debug` Bearer `DEBUG_TOKEN`: source health, configuration, ranked opportunities and recent events
 - `POST /run` Bearer `DEBUG_TOKEN`: immediate manual cycle
 - `POST /ingest` Bearer `INGEST_TOKEN` (or `DEBUG_TOKEN` fallback): accept normalized Instagram/Facebook/TikTok/Carousell/provider signals
-
 
 ## Social/provider ingest
 
