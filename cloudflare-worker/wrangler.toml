@@ -3,6 +3,11 @@ main = "src/entry.js"
 compatibility_date = "2026-09-05"
 workers_dev = true
 
+# Keep Worker execution near Singapore for lower-latency, more consistent access
+# to the Singapore storefront. This is a placement hint, not a fixed-egress-IP setting.
+[placement]
+region = "aws:ap-southeast-1"
+
 [triggers]
 # Cloudflare Cron Triggers use UTC. 00:00-15:59 UTC = 08:00-23:59 SGT.
 # The Cron is only a watchdog; the Durable Object performs adaptive source checks.
@@ -18,10 +23,13 @@ tag = "v1"
 new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
+# Keep the normal healthy cadence at 30 seconds.
 CHECK_INTERVAL_SECONDS = "30"
-RECOVERY_INTERVAL_SECONDS = "60"
-RECOVERY_SUCCESS_TARGET = "20"
-BLOCK_BACKOFF_SECONDS = "900"
+# After a block clears, recover more gently before returning to 30-second checks.
+RECOVERY_INTERVAL_SECONDS = "300"
+RECOVERY_SUCCESS_TARGET = "6"
+# A block/challenge cools down 30m -> 1h -> 2h -> 4h -> 8h (capped).
+BLOCK_BACKOFF_SECONDS = "1800"
 ERROR_BACKOFF_SECONDS = "60"
 MISSING_CONFIRMATIONS = "2"
 TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
