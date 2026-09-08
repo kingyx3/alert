@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { demandScore, deadInventoryRisk, grossMarginPct, netMarginPct, opportunityScore } from "../src/scoring.js";
-import { buildMarketQuery } from "../src/index.js";
-import { detectGames, extractLocationHint, extractTimingHint } from "../src/sources.js";
+import { buildMarketQuery } from "../src/market/index.js";
+import { detectGames, extractLocationHint, extractTimingHint } from "../src/sources/detection.js";
 
 test("gross and net margins are conservative", () => {
   assert.equal(Math.round(grossMarginPct(100, 150)), 50);
