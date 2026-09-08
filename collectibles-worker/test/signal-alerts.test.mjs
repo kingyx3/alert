@@ -9,6 +9,7 @@ test("aggregated community PASS signals do not reach Telegram", () => {
     sourceName: "TCGCards.sg Singapore News",
     signalType: "DROP",
     timingHint: "6 SEP 2026 · 4PM",
+    url: "https://www.tcgcards.sg/",
     scoring: {
       action: "PASS",
       score: 24,
@@ -21,7 +22,7 @@ test("aggregated community PASS signals do not reach Telegram", () => {
   assert.equal(shouldDeliverTelegramAlert(alert), false);
 });
 
-test("strong social signals need concrete context and render an explicit next step", () => {
+test("strong social drops can alert even when aggregate opportunity scores are weak", () => {
   const alert = {
     name: "OP-17 restock tomorrow 10am at PLQ",
     sourceKind: "social",
@@ -33,19 +34,32 @@ test("strong social signals need concrete context and render an explicit next st
     supplyRisk: 0,
     scoring: {
       action: "PASS",
-      score: 46,
-      demandScore: 58,
+      score: 24,
+      demandScore: 30,
       urgencyScore: 88,
-      deadInventoryRisk: 40,
+      deadInventoryRisk: 54,
     },
     reason: ["social signal", "urgency 88/100"],
   };
 
   assert.equal(shouldDeliverTelegramAlert(alert), true);
   const message = buildTelegramMessage(alert);
-  assert.match(message, /Action: CHECK NOW/);
-  assert.match(message, /Next step: Open the source and verify stock, price and timing/i);
+  assert.match(message, /SOCIAL DROP/);
+  assert.match(message, /Action: CHECK DROP/);
+  assert.match(message, /Next step: Open the social post and verify stock, price and timing/i);
   assert.doesNotMatch(message, /Dead inventory risk/i);
+});
+
+test("social PASS signals still need a strong direct drop signal", () => {
+  const weak = {
+    sourceKind: "social",
+    sourceName: "Store social feed",
+    signalType: "DROP",
+    url: "https://example.com/post",
+    scoring: { action: "PASS", score: 50, demandScore: 70, urgencyScore: 44 },
+  };
+
+  assert.equal(shouldDeliverTelegramAlert(weak), false);
 });
 
 test("timing hints stay within one event instead of stitching unrelated page fragments", () => {
