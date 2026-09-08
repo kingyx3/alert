@@ -30,6 +30,11 @@ const REPRINT_TERMS = [
   "restock wave", "more stock coming", "more units", "wide release", "mass release", "new allocation",
 ];
 
+const MONTH_PATTERN = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
+const DATE_PATTERN = `\\b\\d{1,2}(?:st|nd|rd|th)?\\s+${MONTH_PATTERN}\\s+\\d{4}\\b`;
+const RELATIVE_DATE_PATTERN = "\\b(?:today|tomorrow|this weekend|this saturday|this sunday)\\b";
+const TIME_PATTERN = "\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b";
+
 export const SG_LOCATION_TERMS = [
   "Jewel Changi Airport", "PLQ", "Paya Lebar Quarter", "EastPoint Mall", "Woodlands Civic Centre",
   "VivoCity", "NEX", "Suntec City", "Plaza Singapura", "Bugis Junction", "Jurong Point",
@@ -43,6 +48,10 @@ function decodeEntities(text) {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&lt;/gi, "<")
     .replace(/&gt;/gi, ">");
+}
+
+function matchesFor(text, source) {
+  return [...String(text || "").matchAll(new RegExp(source, "gi"))];
 }
 
 export function normalize(text) {
@@ -74,19 +83,31 @@ export function extractLocationHint(text, fallback = null) {
 }
 
 export function extractTimingHint(text) {
-  const raw = String(text || "").replace(/\s+/g, " ");
-  const patterns = [
-    /\b(?:today|tomorrow|this weekend|this saturday|this sunday)\b[^.!?]{0,45}/i,
-    /\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\b[^.!?]{0,55}/i,
-    /\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b[^.!?]{0,45}/i,
-    /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i,
-  ];
-  const parts = [];
-  for (const pattern of patterns) {
-    const match = raw.match(pattern);
-    if (match) parts.push(match[0].trim());
-  }
-  return [...new Set(parts)].join(" · ").slice(0, 140) || null;
+  const raw = String(text || "").replace(/\s+/g, " ").trim();
+  if (!raw) return null;
+
+  const dates = matchesFor(raw, DATE_PATTERN);
+  const relatives = matchesFor(raw, RELATIVE_DATE_PATTERN);
+  const times = matchesFor(raw, TIME_PATTERN);
+  const anchors = [...dates, ...relatives].sort((a, b) => (a.index || 0) - (b.index || 0));
+  if (!anchors.length && !times.length) return null;
+
+  // Keep timing evidence local to one passage. Whole-page aggregators often contain
+  // release calendars, old posts and event listings; combining the first match of
+  // each pattern creates nonsense such as "Mon ... 1 September ... 4PM".
+  const anchorIndex = anchors.length ? (anchors[0].index || 0) : Math.max(0, (times[0].index || 0) - 80);
+  const window = raw.slice(anchorIndex, anchorIndex + 180);
+  const localDates = matchesFor(window, DATE_PATTERN);
+  const localRelatives = matchesFor(window, RELATIVE_DATE_PATTERN);
+  const localTimes = matchesFor(window, TIME_PATTERN);
+
+  // If a publication date is immediately followed by an event date, prefer the
+  // latter. This is common on news feeds such as "1 Sep 2026 — Trade Night (6 Sep 2026)".
+  const dateHint = localDates.length
+    ? localDates[localDates.length - 1][0]
+    : localRelatives.length ? localRelatives[0][0] : null;
+  const timeHint = localTimes.length ? localTimes[0][0] : null;
+  return [dateHint, timeHint].filter(Boolean).join(" · ").slice(0, 140) || null;
 }
 
 export function termScore(text, terms) {
