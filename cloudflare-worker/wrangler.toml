@@ -1,4 +1,4 @@
-name = "lazada-tcg-restock-monitor"
+name = "lazada-tcg-restock-monitor2"
 main = "src/entry.js"
 compatibility_date = "2026-09-05"
 workers_dev = true
