@@ -101,11 +101,16 @@ export function extractTimingHint(text) {
   const localRelatives = matchesFor(window, RELATIVE_DATE_PATTERN);
   const localTimes = matchesFor(window, TIME_PATTERN);
 
-  // If a publication date is immediately followed by an event date, prefer the
-  // latter. This is common on news feeds such as "1 Sep 2026 — Trade Night (6 Sep 2026)".
-  const dateHint = localDates.length
-    ? localDates[localDates.length - 1][0]
-    : localRelatives.length ? localRelatives[0][0] : null;
+  // News feeds commonly put a publication date first and an event date shortly
+  // after it. Prefer that second date only when it is close enough to belong to
+  // the same item; otherwise keep the first date and avoid leaking into next post.
+  let dateHint = null;
+  if (localDates.length) {
+    const secondLooksLocal = localDates.length > 1 && (localDates[1].index || 0) <= 110;
+    dateHint = (secondLooksLocal ? localDates[1] : localDates[0])[0];
+  } else if (localRelatives.length) {
+    dateHint = localRelatives[0][0];
+  }
   const timeHint = localTimes.length ? localTimes[0][0] : null;
   return [dateHint, timeHint].filter(Boolean).join(" · ").slice(0, 140) || null;
 }
