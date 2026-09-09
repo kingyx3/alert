@@ -35,3 +35,6 @@ MISSING_CONFIRMATIONS = "2"
 TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
 ALERT_ON_FIRST_RUN = "false"
 ALLOW_EMPTY_TCG_SNAPSHOT = "false"
+# Temporary heartbeat: send a Telegram message after every successful scrape.
+# Set to "false" once the monitor is stable.
+DEBUG_NOTIFY_SUCCESS = "true"
