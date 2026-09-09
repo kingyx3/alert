@@ -118,12 +118,13 @@ export class LazadaMonitor extends BaseLazadaMonitor {
     }
 
     const wakeAt = nextActiveStart(requestedAt);
-    await this.state.storage.deleteAlarm();
-    meta.nextAlarmAt = null;
+    await this.state.storage.setAlarm(wakeAt);
+    meta.nextAlarmAt = new Date(wakeAt).toISOString();
     meta.nextAllowedCheckAt = wakeAt;
-    meta.sleepingUntil = new Date(wakeAt).toISOString();
+    meta.sleepingUntil = meta.nextAlarmAt;
     this.log(meta, "monitor.sleep.scheduled", {
       requestedAt: new Date(requestedAt).toISOString(),
+      nextAlarmAt: meta.nextAlarmAt,
       sleepingUntil: meta.sleepingUntil,
       activeWindowSgt: "08:00-24:00",
     });
@@ -135,12 +136,13 @@ export class LazadaMonitor extends BaseLazadaMonitor {
         ? { inventory: inventoryArg, meta: metaArg }
         : await this.loadState();
       const wakeAt = nextActiveStart();
-      await this.state.storage.deleteAlarm();
-      loaded.meta.nextAlarmAt = null;
+      await this.state.storage.setAlarm(wakeAt);
+      loaded.meta.nextAlarmAt = new Date(wakeAt).toISOString();
       loaded.meta.nextAllowedCheckAt = wakeAt;
-      loaded.meta.sleepingUntil = new Date(wakeAt).toISOString();
+      loaded.meta.sleepingUntil = loaded.meta.nextAlarmAt;
       this.log(loaded.meta, "monitor.sleeping", {
         trigger,
+        nextAlarmAt: loaded.meta.nextAlarmAt,
         sleepingUntil: loaded.meta.sleepingUntil,
         activeWindowSgt: "08:00-24:00",
       });
