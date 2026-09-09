@@ -14,6 +14,15 @@ function asInt(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   return Math.min(max, Math.max(min, parsed));
 }
 
+function asBool(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
 function sgtDate(timestamp = Date.now()) {
   return new Date(timestamp + SGT_OFFSET_MS);
 }
@@ -73,6 +82,27 @@ function jsonResponse(payload, status = 200) {
   });
 }
 
+async function sendDebugSuccessTelegram(env, message) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHANNEL_ID) {
+    throw new Error("TELEGRAM_BOT_TOKEN/TELEGRAM_CHANNEL_ID Worker secrets are not configured");
+  }
+
+  const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      chat_id: env.TELEGRAM_CHANNEL_ID,
+      text: message,
+      disable_web_page_preview: true,
+    }),
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Telegram debug send failed HTTP ${response.status}: ${responseText.slice(0, 250)}`);
+  }
+}
+
 // Conservative adaptive polling: 30s normally. A Lazada block/challenge backs off
 // 15m -> 30m -> 1h -> 2h -> 4h -> 8h, then remains capped at 8h.
 // After access recovers, poll at 60s for 20 clean checks, then return to the
@@ -97,6 +127,10 @@ export class LazadaMonitor extends BaseLazadaMonitor {
       5 * 60,
       MAX_BLOCK_BACKOFF_SECONDS,
     );
+  }
+
+  debugSuccessNotificationsEnabled() {
+    return asBool(this.env.DEBUG_NOTIFY_SUCCESS, false);
   }
 
   intervalMs() {
@@ -190,6 +224,7 @@ export class LazadaMonitor extends BaseLazadaMonitor {
           meta.recoveryMode = false;
           meta.recoverySuccesses = 0;
           meta.blockStreak = 0;
+          this._currentRecoveryMode = false;
           this.log(meta, "monitor.recovery.complete", {
             trigger,
             healthyIntervalSeconds: this.healthyIntervalMs() / 1000,
@@ -207,6 +242,40 @@ export class LazadaMonitor extends BaseLazadaMonitor {
         meta.blockStreak = 0;
         meta.recoverySuccesses = 0;
       }
+
+      if (this.debugSuccessNotificationsEnabled()) {
+        const trackedSkus = Object.keys(inventory).length;
+        const availableSkus = Object.values(inventory).filter((item) => item.available === true).length;
+        const debugMessage = [
+          "✅ Lazada monitor debug: scrape succeeded",
+          `Trigger: ${trigger}`,
+          `Checked: ${meta.lastSuccessAt || new Date().toISOString()}`,
+          `Restocks detected: ${Number(result.restocked || 0)}`,
+          `Tracked SKUs: ${trackedSkus}`,
+          `Available SKUs: ${availableSkus}`,
+          `Mode: ${meta.recoveryMode ? "recovery" : "healthy"}`,
+          `Next alarm: ${meta.nextAlarmAt || "not scheduled"}`,
+          "DEBUG_NOTIFY_SUCCESS=true",
+        ].join("\n");
+
+        try {
+          await sendDebugSuccessTelegram(this.env, debugMessage);
+          this.log(meta, "telegram.debug_success.sent", {
+            trigger,
+            runId: result.runId || null,
+            restockedSkus: Number(result.restocked || 0),
+            trackedSkus,
+            availableSkus,
+          });
+        } catch (error) {
+          this.log(meta, "telegram.debug_success.error", {
+            trigger,
+            runId: result.runId || null,
+            message: String(error?.message || error),
+          });
+        }
+      }
+
       await this.persist(inventory, meta);
     }
 
@@ -235,6 +304,7 @@ export class LazadaMonitor extends BaseLazadaMonitor {
         blockBackoffSeconds: baseBackoff,
         blockBackoffMaxSeconds: MAX_BLOCK_BACKOFF_SECONDS,
         blockBackoffSequenceSeconds: [1, 2, 3, 4, 5, 6].map((streak) => blockBackoffSeconds(streak, baseBackoff)),
+        debugNotifySuccess: this.debugSuccessNotificationsEnabled(),
         activeWindowSgt: "08:00-24:00",
         backgroundChecksOutsideWindow: false,
       };
