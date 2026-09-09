@@ -34,6 +34,12 @@ function normalizeFeeds(value) {
   return [...new Set(feeds.length ? feeds : DEFAULT_FEEDS)];
 }
 
+function boundedNumber(value, fallback, min, max = Number.POSITIVE_INFINITY) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
 function parseSeenCursor(cursor) {
   if (!cursor) return [];
   try {
@@ -53,6 +59,15 @@ function locationName(value, fallback = "Singapore") {
   return fallback;
 }
 
+function mediaText(item, account) {
+  const caption = String(item?.caption || "").trim();
+  if (caption) return caption;
+  const context = String(account.mediaContext || "").trim();
+  if (context) return context;
+  const games = Array.isArray(account.games) ? account.games.map(String).filter(Boolean) : [];
+  return games.length ? `${games.join(" ")} Instagram ${account.feed} update` : "";
+}
+
 function canonicalMediaUrl(item, username, feed) {
   if (item?.url) return item.url;
   if (feed === "stories" && item?.id) return `https://www.instagram.com/stories/${encodeURIComponent(username)}/${encodeURIComponent(item.id)}/`;
@@ -67,7 +82,7 @@ function mapMediaItem(item, account) {
   const feed = account.feed;
   return {
     id,
-    text: String(item?.caption || "").trim(),
+    text: mediaText(item, account),
     createdAt: item?.taken_at || nowIso(),
     url: canonicalMediaUrl(item, username, feed),
     metrics: {
@@ -151,9 +166,7 @@ async function fetchProfile(env, account, seen) {
 
 async function fetchFeed(env, account, seen) {
   const endpoint = `/profile/${account.feed}`;
-  const maxPages = seen.size
-    ? Math.max(1, Math.min(5, Number(account.maxPages || 2)))
-    : 1;
+  const maxPages = seen.size ? boundedNumber(account.maxPages, 2, 1, 5) : 1;
   const items = [];
   let providerCursor = null;
 
@@ -208,8 +221,8 @@ export const instagramAdapter = {
   kind: "social",
   intervalSeconds(account) {
     const feed = normalizeFeed(account.feed) || "posts";
-    const configured = account[`${feed}IntervalSeconds`] ?? account.intervalSeconds ?? DEFAULT_INTERVALS[feed];
-    return Math.max(120, Number(configured || DEFAULT_INTERVALS[feed]));
+    const configured = account[`${feed}IntervalSeconds`] ?? account.intervalSeconds;
+    return boundedNumber(configured, DEFAULT_INTERVALS[feed], 120);
   },
   async fetchPosts(env, account, cursor = null) {
     if (!env.INSTAGRAM_API_KEY || !account?.username) return [];
