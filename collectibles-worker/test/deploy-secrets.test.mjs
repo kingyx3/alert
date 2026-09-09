@@ -29,11 +29,15 @@ test("deploy secret builder includes configured optional provider secrets", () =
     TCG_API_KEY: "tcg_live_test",
     PRICECHARTING_TOKEN: "pc-test",
     X_BEARER_TOKEN: "x-test",
+    INSTAGRAM_API_KEY: "ig-live-test",
+    INSTAGRAM_ACCOUNTS_JSON: '[{"username":"shop"}]',
     INGEST_TOKEN: "ingest-test",
   });
 
   assert.equal(secrets.TCG_API_KEY, "tcg_live_test");
   assert.equal(secrets.PRICECHARTING_TOKEN, "pc-test");
   assert.equal(secrets.X_BEARER_TOKEN, "x-test");
+  assert.equal(secrets.INSTAGRAM_API_KEY, "ig-live-test");
+  assert.equal(secrets.INSTAGRAM_ACCOUNTS_JSON, '[{"username":"shop"}]');
   assert.equal(secrets.INGEST_TOKEN, "ingest-test");
 });
