@@ -244,21 +244,21 @@ export class LazadaMonitor extends BaseLazadaMonitor {
       }
 
       if (this.debugSuccessNotificationsEnabled()) {
-        const trackedSkus = Object.keys(inventory).length;
-        const availableSkus = Object.values(inventory).filter((item) => item.available === true).length;
-        const debugMessage = [
-          "✅ Lazada monitor debug: scrape succeeded",
-          `Trigger: ${trigger}`,
-          `Checked: ${meta.lastSuccessAt || new Date().toISOString()}`,
-          `Restocks detected: ${Number(result.restocked || 0)}`,
-          `Tracked SKUs: ${trackedSkus}`,
-          `Available SKUs: ${availableSkus}`,
-          `Mode: ${meta.recoveryMode ? "recovery" : "healthy"}`,
-          `Next alarm: ${meta.nextAlarmAt || "not scheduled"}`,
-          "DEBUG_NOTIFY_SUCCESS=true",
-        ].join("\n");
-
         try {
+          const trackedSkus = Object.keys(inventory).length;
+          const availableSkus = Object.values(inventory).filter((item) => item?.available === true).length;
+          const debugMessage = [
+            "✅ Lazada monitor debug: scrape succeeded",
+            `Trigger: ${trigger}`,
+            `Checked: ${meta.lastSuccessAt || new Date().toISOString()}`,
+            `Restocks detected: ${Number(result.restocked || 0)}`,
+            `Tracked SKUs: ${trackedSkus}`,
+            `Available SKUs: ${availableSkus}`,
+            `Mode: ${meta.recoveryMode ? "recovery" : "healthy"}`,
+            `Next alarm: ${meta.nextAlarmAt || "not scheduled"}`,
+            "DEBUG_NOTIFY_SUCCESS=true",
+          ].join("\n");
+
           await sendDebugSuccessTelegram(this.env, debugMessage);
           this.log(meta, "telegram.debug_success.sent", {
             trigger,
