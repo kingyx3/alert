@@ -1,7 +1,8 @@
+import { instagramAdapter } from "./instagram.js";
 import { xAdapter } from "./x.js";
 
 // Polling social adapters return the same normalized post shape. Add a new adapter here without changing monitor orchestration.
-export const SOCIAL_ADAPTERS = [xAdapter];
+export const SOCIAL_ADAPTERS = [xAdapter, instagramAdapter];
 
 export function loadSocialSources(env) {
   const rows = [];
@@ -23,4 +24,5 @@ export function loadSocialSources(env) {
   return rows;
 }
 
+export { loadInstagramAccounts } from "./instagram.js";
 export { loadXAccounts } from "./x.js";

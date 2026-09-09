@@ -24,7 +24,7 @@ Upstream / official signals:
 - Takara Tomy Beyblade X news
 - TCGCards.sg Singapore news aggregation
 
-Optional X accounts can be added with `X_ACCOUNTS_JSON`. Instagram should be supplied through a compliant social-listening provider or another JSON/webhook bridge; Meta's first-party Instagram API is primarily for professional accounts managed by the authenticated app and is not a general arbitrary-public-account feed.
+Optional X accounts can be added with `X_ACCOUNTS_JSON`. Public Instagram accounts can be polled through the Instagram social adapter with `INSTAGRAM_API_KEY` and `INSTAGRAM_ACCOUNTS_JSON`. The adapter uses a public-data provider instead of scraping Instagram pages directly; the default compatible API base is `https://api.instagramapi.dev/v1`.
 
 ## Market and demand model
 
@@ -89,8 +89,11 @@ Optional:
 ```text
 PRICECHARTING_TOKEN
 X_BEARER_TOKEN
-INGEST_TOKEN
 X_ACCOUNTS_JSON
+INSTAGRAM_API_KEY
+INSTAGRAM_ACCOUNTS_JSON
+INSTAGRAM_API_BASE_URL
+INGEST_TOKEN
 EXTRA_SOURCES_JSON
 TCG_API_HISTORY_ENABLED=true
 MARKET_CACHE_SECONDS=21600
@@ -107,6 +110,30 @@ Example `X_ACCOUNTS_JSON`:
   {"username":"retailer_handle","name":"Retailer Name","location":"Singapore","intervalSeconds":180}
 ]
 ```
+
+Example `INSTAGRAM_ACCOUNTS_JSON`:
+```json
+[
+  {
+    "username":"retailer_handle",
+    "name":"Retailer Name",
+    "location":"Singapore",
+    "games":["pokemon","one-piece"],
+    "feeds":["stories","posts","reels","profile"],
+    "storiesIntervalSeconds":600,
+    "postsIntervalSeconds":900,
+    "reelsIntervalSeconds":900,
+    "profileIntervalSeconds":21600,
+    "maxPages":2
+  }
+]
+```
+
+Instagram feed entries are expanded into independent polling sources, so Stories can run more frequently than posts or Reels. The default feeds are `stories`, `posts`, and `reels`; add `profile` to detect bio/external-link changes. Feed cursors keep a rolling set of the most recent 100 media IDs and posts/Reels can page backward until a seen ID is reached, bounded by `maxPages` (default `2`, maximum `5`).
+
+Instagram Stories frequently have no caption in public-data responses. Add `games` (recommended) or a `mediaContext` string for accounts where captionless Stories should still enter the social scoring pipeline. This is only contextual classification; the Worker does not pretend to OCR or understand image-only Story artwork. For price/date/product text embedded in images, use a vision/OCR enrichment service and send the extracted text through `/ingest`.
+
+The Instagram public-data provider is metered, so aggressive polling across many accounts can become expensive. Configure faster intervals only for high-priority profiles and use slower schedules for lower-value sources.
 
 Example extra source:
 ```json
@@ -147,7 +174,7 @@ Add D1 when the project needs analytical history rather than just operational st
 
 ## Social/provider ingest
 
-Use `/ingest` as the bridge for Instagram, Facebook, TikTok, social-listening providers, retailer email parsers, or your own Carousell analytics pipeline. This avoids coupling the core system to unsupported public-page scraping.
+Use `/ingest` as a bridge for vision-enriched Instagram Stories, Facebook, TikTok, social-listening providers, retailer email parsers, or your own Carousell analytics pipeline. This avoids coupling the core system to unsupported public-page scraping and complements the direct Instagram public-data adapter when media needs OCR/vision analysis.
 
 Example payload:
 ```json
