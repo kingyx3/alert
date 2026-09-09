@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/index.js && node --check src/monitor.js && node --check src/scoring.js && node --check src/market/index.js && node --check src/sources/index.js && node --check src/social/index.js && node --check src/social/x.js",
+    "check": "node --check src/index.js && node --check src/monitor.js && node --check src/scoring.js && node --check src/market/index.js && node --check src/sources/index.js && node --check src/social/index.js && node --check src/social/x.js && node --check src/social/instagram.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail"
