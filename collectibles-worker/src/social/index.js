@@ -6,6 +6,7 @@ export const SOCIAL_ADAPTERS = [xAdapter];
 export function loadSocialSources(env) {
   const rows = [];
   for (const adapter of SOCIAL_ADAPTERS) {
+    if (typeof adapter.enabled === "function" && !adapter.enabled(env)) continue;
     const accounts = adapter.loadAccounts(env);
     for (const account of accounts) {
       rows.push({
