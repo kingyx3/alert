@@ -40,7 +40,7 @@ async function fetchPosts(env, account, cursor = null) {
   const id = user?.data?.id;
   if (!id) return [];
 
-  const params = new URLSearchParams({ max_results: "10", exclude: "retweets,replies", "tweet.fields": "created_at,public_metrics,entities" });
+  const params = new URLSearchParams({ max_results: cursor ? "100" : "10", exclude: "retweets,replies", "tweet.fields": "created_at,public_metrics,entities" });
   if (cursor) params.set("since_id", cursor);
   const postResp = await fetch(`https://api.x.com/2/users/${id}/tweets?${params}`, { headers: auth });
   if (!postResp.ok) throw new Error(`X posts HTTP ${postResp.status}`);
