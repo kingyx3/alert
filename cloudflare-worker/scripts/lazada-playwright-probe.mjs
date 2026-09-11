@@ -51,7 +51,7 @@ function parseJsonObjectAt(text, start) {
 }
 
 function extractEmbeddedJson(body) {
-  for (const marker of ['{"mods"', '{"modsData"', '{"data"']) {
+  for (const marker of ['{"templates"', '{"mods"', '{"modsData"', '{"data"']) {
     let start = body.indexOf(marker);
     while (start >= 0) {
       const parsed = parseJsonObjectAt(body, start);
@@ -83,12 +83,12 @@ function productName(item) {
   return String(item?.name || item?.title || item?.productName || "");
 }
 
-function inspectPayload(html) {
+function inspectPayload(sourceBody) {
   let payload = null;
   try {
-    payload = JSON.parse(html);
+    payload = JSON.parse(sourceBody);
   } catch {
-    payload = extractEmbeddedJson(html);
+    payload = extractEmbeddedJson(sourceBody);
   }
 
   if (!payload || typeof payload !== "object") {
@@ -160,7 +160,9 @@ try {
   const bodyText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
   const lower = `${title}\n${bodyText}\n${html}`.toLowerCase();
   const blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
-  const payload = inspectPayload(html);
+  // Chromium wraps application/json responses in an HTML <pre>; body.innerText
+  // recovers the original JSON string while page.content() is retained as an artifact.
+  const payload = inspectPayload(bodyText || html);
 
   let result = "success";
   if (blockMarker || [403, 429].includes(response?.status())) {
