@@ -8,6 +8,11 @@ workers_dev = true
 [placement]
 region = "aws:ap-southeast-1"
 
+# Render Lazada through Cloudflare Browser Run rather than a plain Worker fetch.
+# Quick Actions are available on this compatibility date and require no API token.
+[browser]
+binding = "BROWSER"
+
 [triggers]
 # Cloudflare Cron Triggers use UTC. 00:00-15:59 UTC = 08:00-23:59 SGT.
 # The Cron is only a watchdog; the Durable Object performs adaptive source checks.
@@ -23,9 +28,10 @@ tag = "v1"
 new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
-# Keep the normal healthy cadence at 30 seconds.
-CHECK_INTERVAL_SECONDS = "30"
-# After a block clears, recover more gently before returning to 30-second checks.
+# Browser Run free-tier experiment: 15-minute healthy checks keep browser minutes
+# bounded while still being useful for restock detection.
+CHECK_INTERVAL_SECONDS = "900"
+# After a block clears, require a short run of clean browser snapshots.
 RECOVERY_INTERVAL_SECONDS = "300"
 RECOVERY_SUCCESS_TARGET = "6"
 # A block/challenge cools down 30m -> 1h -> 2h -> 4h -> 8h (capped).
@@ -35,6 +41,6 @@ MISSING_CONFIRMATIONS = "2"
 TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
 ALERT_ON_FIRST_RUN = "false"
 ALLOW_EMPTY_TCG_SNAPSHOT = "false"
-# Temporary heartbeat: send a Telegram message after every successful scrape.
-# Set to "false" once the monitor is stable.
-DEBUG_NOTIFY_SUCCESS = "true"
+# Health/debug endpoints now expose sourceEngine and failure details, so avoid
+# sending a Telegram heartbeat after every 15-minute successful check.
+DEBUG_NOTIFY_SUCCESS = "false"

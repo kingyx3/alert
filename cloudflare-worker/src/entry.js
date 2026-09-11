@@ -7,6 +7,9 @@ const DEFAULT_RECOVERY_INTERVAL_SECONDS = 60;
 const DEFAULT_RECOVERY_SUCCESS_TARGET = 20;
 const DEFAULT_BLOCK_BACKOFF_SECONDS = 15 * 60;
 const MAX_BLOCK_BACKOFF_SECONDS = 8 * 60 * 60;
+const SOURCE_ENGINE_BROWSER_RUN = "cloudflare-browser-run";
+const SOURCE_ENGINE_WORKER_FETCH = "worker-fetch";
+const BROWSER_RUN_TIMEOUT_MS = 30 * 1000;
 
 function asInt(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -63,9 +66,14 @@ function monitorHealth(meta) {
     status: degraded ? "degraded" : "ok",
     mode: sleeping ? "sleeping" : "active",
     activeWindowSgt: "08:00-24:00",
+    sourceEngine: meta.sourceEngine || null,
     lastCheckAt: meta.lastCheckAt || null,
     lastSuccessAt: meta.lastSuccessAt || null,
     lastAlertAt: meta.lastAlertAt || null,
+    lastErrorAt: meta.lastError?.at || null,
+    lastErrorType: meta.lastError?.type || null,
+    lastErrorMessage: meta.lastError?.message || null,
+    lastBlockMarker: meta.lastError?.details?.blockMarker || null,
     consecutiveFailures: meta.consecutiveFailures || 0,
     blockStreak: meta.blockStreak || 0,
     recoveryMode: Boolean(meta.recoveryMode),
@@ -103,10 +111,72 @@ async function sendDebugSuccessTelegram(env, message) {
   }
 }
 
-// Conservative adaptive polling: 30s normally. A Lazada block/challenge backs off
-// 15m -> 30m -> 1h -> 2h -> 4h -> 8h, then remains capped at 8h.
-// After access recovers, poll at 60s for 20 clean checks, then return to the
-// 30-second healthy cadence. Checks only run 08:00-24:00 SGT.
+function normalizedRequestUrl(input) {
+  try {
+    if (typeof input === "string") return new URL(input).toString();
+    if (input instanceof URL) return input.toString();
+    if (input instanceof Request) return new URL(input.url).toString();
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+async function browserRunSourceResponse(env) {
+  try {
+    const response = await env.BROWSER.quickAction("content", {
+      url: env.LAZADA_URL,
+      cacheTTL: 0,
+      gotoOptions: {
+        waitUntil: "networkidle2",
+        timeout: BROWSER_RUN_TIMEOUT_MS,
+      },
+    });
+
+    const raw = await response.text();
+    if (!response.ok) {
+      return new Response(`Browser Run HTTP ${response.status}: ${raw.slice(0, 500)}`, {
+        status: 502,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    let envelope;
+    try {
+      envelope = JSON.parse(raw);
+    } catch {
+      return new Response(`Browser Run returned invalid JSON: ${raw.slice(0, 500)}`, {
+        status: 502,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    if (!envelope?.success || typeof envelope.result !== "string") {
+      return new Response(`Browser Run returned no HTML: ${raw.slice(0, 500)}`, {
+        status: 502,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+
+    return new Response(envelope.result, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "x-alert-source-engine": SOURCE_ENGINE_BROWSER_RUN,
+      },
+    });
+  } catch (error) {
+    return new Response(`Browser Run exception: ${String(error?.message || error).slice(0, 500)}`, {
+      status: 502,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+}
+
+// Conservative adaptive polling. Browser Run is used for the Lazada navigation
+// when the BROWSER binding exists; all other fetches (including Telegram) still
+// use the normal Workers fetch implementation. Checks run 08:00-24:00 SGT,
+// while authenticated manual checks are allowed outside that window for testing.
 export class LazadaMonitor extends BaseLazadaMonitor {
   healthyIntervalMs() {
     return asInt(this.env.CHECK_INTERVAL_SECONDS, DEFAULT_HEALTHY_INTERVAL_SECONDS, 15, 3600) * 1000;
@@ -131,6 +201,14 @@ export class LazadaMonitor extends BaseLazadaMonitor {
 
   debugSuccessNotificationsEnabled() {
     return asBool(this.env.DEBUG_NOTIFY_SUCCESS, false);
+  }
+
+  browserRunEnabled() {
+    return Boolean(this.env.BROWSER?.quickAction && this.env.LAZADA_URL);
+  }
+
+  sourceEngine() {
+    return this.browserRunEnabled() ? SOURCE_ENGINE_BROWSER_RUN : SOURCE_ENGINE_WORKER_FETCH;
   }
 
   intervalMs() {
@@ -164,8 +242,51 @@ export class LazadaMonitor extends BaseLazadaMonitor {
     });
   }
 
+  async runCheckWithSourceEngine(trigger, loaded) {
+    const sourceEngine = this.sourceEngine();
+    const sourceUrl = normalizedRequestUrl(this.env.LAZADA_URL || "");
+
+    // A historical block streak from direct Worker fetches should not force a
+    // brand-new Browser Run transport straight into the 8-hour backoff cap.
+    if (sourceEngine === SOURCE_ENGINE_BROWSER_RUN && loaded.meta.sourceEngine !== sourceEngine) {
+      this.log(loaded.meta, "monitor.source_engine.changed", {
+        previous: loaded.meta.sourceEngine || null,
+        current: sourceEngine,
+        resetBlockState: true,
+      });
+      loaded.meta.blockStreak = 0;
+      loaded.meta.recoveryMode = false;
+      loaded.meta.recoverySuccesses = 0;
+      loaded.meta.consecutiveFailures = 0;
+    }
+    loaded.meta.sourceEngine = sourceEngine;
+
+    if (sourceEngine !== SOURCE_ENGINE_BROWSER_RUN) {
+      return super.runCheck(trigger, loaded.inventory, loaded.meta);
+    }
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init = undefined) => {
+      const url = normalizedRequestUrl(input);
+      const requestMethod = String(
+        init?.method || (input instanceof Request ? input.method : "GET"),
+      ).toUpperCase();
+
+      if (requestMethod === "GET" && url && url === sourceUrl) {
+        return browserRunSourceResponse(this.env);
+      }
+      return originalFetch(input, init);
+    };
+
+    try {
+      return await super.runCheck(trigger, loaded.inventory, loaded.meta);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
   async runCheck(trigger, inventoryArg = null, metaArg = null) {
-    if (!isActiveSgt()) {
+    if (!isActiveSgt() && trigger !== "manual") {
       const loaded = inventoryArg && metaArg
         ? { inventory: inventoryArg, meta: metaArg }
         : await this.loadState();
@@ -196,16 +317,18 @@ export class LazadaMonitor extends BaseLazadaMonitor {
     this._currentRecoveryMode = Boolean(loaded.meta.recoveryMode);
     this._pendingBlockStreak = Number(loaded.meta.blockStreak || 0) + 1;
 
-    const result = await super.runCheck(trigger, loaded.inventory, loaded.meta);
+    const result = await this.runCheckWithSourceEngine(trigger, loaded);
 
     if (result?.blocked) {
       const { inventory, meta } = await this.loadState();
+      meta.sourceEngine = this.sourceEngine();
       meta.blockStreak = this._pendingBlockStreak;
       meta.recoveryMode = true;
       meta.recoverySuccesses = 0;
       const delaySeconds = blockBackoffSeconds(meta.blockStreak, this.blockBackoffBaseSeconds());
       this.log(meta, "monitor.block_backoff", {
         trigger,
+        sourceEngine: meta.sourceEngine,
         blockStreak: meta.blockStreak,
         delaySeconds,
         nextAlarmAt: meta.nextAlarmAt || null,
@@ -216,6 +339,10 @@ export class LazadaMonitor extends BaseLazadaMonitor {
 
     if (result?.ok) {
       const { inventory, meta } = await this.loadState();
+      meta.sourceEngine = this.sourceEngine();
+      if (meta.lastSource && typeof meta.lastSource === "object") {
+        meta.lastSource.engine = meta.sourceEngine;
+      }
       if (meta.recoveryMode) {
         meta.recoverySuccesses = Number(meta.recoverySuccesses || 0) + 1;
         const target = this.recoverySuccessTarget();
@@ -250,6 +377,7 @@ export class LazadaMonitor extends BaseLazadaMonitor {
           const debugMessage = [
             "✅ Lazada monitor debug: scrape succeeded",
             `Trigger: ${trigger}`,
+            `Engine: ${meta.sourceEngine}`,
             `Checked: ${meta.lastSuccessAt || new Date().toISOString()}`,
             `Restocks detected: ${Number(result.restocked || 0)}`,
             `Tracked SKUs: ${trackedSkus}`,
@@ -298,6 +426,9 @@ export class LazadaMonitor extends BaseLazadaMonitor {
       payload.health = monitorHealth(meta);
       payload.config = {
         ...(payload.config || {}),
+        sourceEngine: this.sourceEngine(),
+        browserRunEnabled: this.browserRunEnabled(),
+        browserRunTimeoutMs: BROWSER_RUN_TIMEOUT_MS,
         checkIntervalSeconds: this.healthyIntervalMs() / 1000,
         recoveryIntervalSeconds: this.recoveryIntervalMs() / 1000,
         recoverySuccessTarget: this.recoverySuccessTarget(),
@@ -307,6 +438,7 @@ export class LazadaMonitor extends BaseLazadaMonitor {
         debugNotifySuccess: this.debugSuccessNotificationsEnabled(),
         activeWindowSgt: "08:00-24:00",
         backgroundChecksOutsideWindow: false,
+        authenticatedManualChecksOutsideWindow: true,
       };
       return jsonResponse(payload, response.status);
     }
