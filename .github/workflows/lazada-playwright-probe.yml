@@ -16,8 +16,8 @@ on:
       - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   schedule:
-    # Four fresh runners every 10 minutes during 08:00-24:00 SGT. Offset from
-    # minute 0 to reduce contention on GitHub's scheduled-workflow infrastructure.
+    # Four fresh primary runners every 10 minutes during 08:00-24:00 SGT.
+    # Minute 3 avoids the busiest top-of-hour scheduling boundary.
     - cron: '3-53/10 8-23 * * *'
       timezone: 'Asia/Singapore'
 
@@ -28,9 +28,39 @@ concurrency:
   group: lazada-playwright-monitor-${{ github.event_name == 'schedule' && 'scheduled' || github.ref }}
   cancel-in-progress: true
 
+env:
+  MONITOR_URL: https://lazada-tcg-restock-monitor.kingyx33.workers.dev
+
 jobs:
+  gate:
+    name: source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Wait for external-snapshot Worker after a push
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 18); do
+            body="$(curl --silent --show-error --max-time 10 "${MONITOR_URL}/healthz" || true)"
+            echo "Deployment gate attempt ${attempt}: ${body}"
+            if grep -q '"externalSnapshotMode": true' <<<"${body}" && \
+               grep -q '"sourceEngine": "github-actions-playwright"' <<<"${body}"; then
+              echo "External-snapshot Worker is live."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Worker did not expose external-snapshot mode before timeout." >&2
+          exit 1
+
+      - name: No deployment wait needed
+        if: github.event_name != 'push'
+        run: echo "Using the already-deployed Worker."
+
   probe:
-    name: probe-${{ matrix.slot }}
+    name: primary-${{ matrix.slot }}
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -55,7 +85,6 @@ jobs:
         continue-on-error: true
         env:
           LAZADA_URL: ${{ vars.LAZADA_URL }}
-          MONITOR_URL: https://lazada-tcg-restock-monitor.kingyx33.workers.dev
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
           INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
           BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
@@ -64,27 +93,118 @@ jobs:
           TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
         run: node cloudflare-worker/scripts/lazada-playwright-probe.mjs
 
-      - name: Upload runner diagnostics
+      - name: Upload primary diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lazada-probe-${{ github.run_id }}-${{ matrix.slot }}
+          name: lazada-primary-${{ github.run_id }}-${{ matrix.slot }}
           path: probe-artifacts-${{ matrix.slot }}/
+          if-no-files-found: error
+          retention-days: 3
+
+  primary_assessment:
+    name: primary-assessment
+    if: always()
+    needs: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      need_rescue: ${{ steps.assess.outputs.need_rescue }}
+    steps:
+      - name: Download primary diagnostics
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lazada-primary-${{ github.run_id }}-*
+          path: primary-results
+          merge-multiple: false
+
+      - name: Decide whether a rescue wave is needed
+        id: assess
+        env:
+          REQUIRE_INGEST: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+
+          rows = [json.loads(path.read_text()) for path in pathlib.Path('primary-results').rglob('probe.json')]
+          rows.sort(key=lambda row: int(row.get('runnerSlot') or 0))
+          require_ingest = os.environ.get('REQUIRE_INGEST', 'true').lower() == 'true'
+
+          for row in rows:
+              print(
+                  f"primary slot={row.get('runnerSlot')} result={row.get('result')} "
+                  f"block={row.get('blockMarker')} products={row.get('tcgCandidates')} "
+                  f"ingest={row.get('ingestOk')} duplicate={row.get('ingestDuplicate')}"
+              )
+
+          if require_ingest:
+              ok = any(row.get('result') == 'success' and row.get('ingestOk') is True for row in rows)
+          else:
+              ok = any(row.get('result') == 'success' for row in rows)
+
+          output = pathlib.Path(os.environ['GITHUB_OUTPUT'])
+          with output.open('a') as fh:
+              fh.write(f"need_rescue={'false' if ok else 'true'}\n")
+          print('Primary wave succeeded.' if ok else 'Primary wave needs rescue runners.')
+          PY
+
+  rescue:
+    name: rescue-${{ matrix.slot }}
+    needs: primary_assessment
+    if: needs.primary_assessment.outputs.need_rescue == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Use preinstalled Chrome
+        run: |
+          google-chrome --version
+          npm install --no-save --no-package-lock playwright-core@1.58.2
+
+      - name: Rescue probe and submit clean snapshot
+        id: rescue_probe
+        continue-on-error: true
+        env:
+          LAZADA_URL: ${{ vars.LAZADA_URL }}
+          DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
+          INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
+          BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          PROBE_SLOT: ${{ matrix.slot }}
+          PROBE_ARTIFACT_DIR: rescue-artifacts-${{ matrix.slot }}
+          TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
+        run: node cloudflare-worker/scripts/lazada-playwright-probe.mjs
+
+      - name: Upload rescue diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lazada-rescue-${{ github.run_id }}-${{ matrix.slot }}
+          path: rescue-artifacts-${{ matrix.slot }}/
           if-no-files-found: error
           retention-days: 3
 
   verdict:
     name: batch-verdict
     if: always()
-    needs: probe
+    needs: [probe, primary_assessment, rescue]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Download runner diagnostics
+      - name: Download all runner diagnostics
         uses: actions/download-artifact@v4
         with:
-          pattern: lazada-probe-${{ github.run_id }}-*
-          path: probe-results
+          pattern: lazada-*-${{ github.run_id }}-*
+          path: batch-results
           merge-multiple: false
 
       - name: Require at least one clean runner
@@ -94,12 +214,10 @@ jobs:
           python - <<'PY'
           import json, os, pathlib, sys
 
-          rows = []
-          for path in pathlib.Path('probe-results').rglob('probe.json'):
-              data = json.loads(path.read_text())
-              rows.append(data)
+          rows = [json.loads(path.read_text()) for path in pathlib.Path('batch-results').rglob('probe.json')]
+          rows.sort(key=lambda row: (str(row.get('batchId')), int(row.get('runnerSlot') or 0)))
+          require_ingest = os.environ.get('REQUIRE_INGEST', 'true').lower() == 'true'
 
-          rows.sort(key=lambda row: int(row.get('runnerSlot') or 0))
           print('Lazada batch results:')
           for row in rows:
               print(
@@ -108,18 +226,42 @@ jobs:
                   f"ingest={row.get('ingestOk')} duplicate={row.get('ingestDuplicate')}"
               )
 
-          require_ingest = os.environ.get('REQUIRE_INGEST', 'true').lower() == 'true'
+          if not rows:
+              print('No runner diagnostics were produced.', file=sys.stderr)
+              sys.exit(2)
+
           if require_ingest:
               ok = any(row.get('result') == 'success' and row.get('ingestOk') is True for row in rows)
           else:
               ok = any(row.get('result') == 'success' for row in rows)
 
-          if not rows:
-              print('No runner diagnostics were produced.', file=sys.stderr)
-              sys.exit(2)
           if not ok:
-              print('All independent runners were blocked or failed this batch.', file=sys.stderr)
+              print('Primary and rescue runners were all blocked or failed.', file=sys.stderr)
               sys.exit(1)
 
           print('Batch succeeded: at least one independent runner produced a clean snapshot.')
+          PY
+
+      - name: Verify live Worker accepted this batch
+        if: github.event_name != 'pull_request'
+        env:
+          EXPECTED_BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          body="$(curl --silent --show-error --fail --max-time 15 "${MONITOR_URL}/healthz")"
+          echo "${body}"
+          HEALTH_JSON="${body}" python - <<'PY'
+          import json, os, sys
+          health = json.loads(os.environ['HEALTH_JSON'])
+          expected = os.environ['EXPECTED_BATCH_ID']
+          checks = {
+              'externalSnapshotMode': health.get('externalSnapshotMode') is True,
+              'sourceEngine': health.get('sourceEngine') == 'github-actions-playwright',
+              'lastAcceptedBatchId': health.get('lastAcceptedBatchId') == expected,
+              'noBlockStreak': int(health.get('blockStreak') or 0) == 0,
+          }
+          print('Health verification:', checks)
+          if not all(checks.values()):
+              print(f"Worker health did not confirm batch {expected}", file=sys.stderr)
+              sys.exit(1)
           PY
