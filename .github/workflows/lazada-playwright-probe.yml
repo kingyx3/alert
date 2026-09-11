@@ -70,3 +70,7 @@ jobs:
           path: probe-artifacts/
           if-no-files-found: warn
           retention-days: 3
+
+      - name: Fail blocked or unparseable probe
+        if: always() && steps.probe.outcome != 'success'
+        run: exit 1
