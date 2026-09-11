@@ -1,21 +1,15 @@
 name = "lazada-tcg-restock-monitor"
-main = "src/entry.js"
+main = "src/gha-entry.js"
 compatibility_date = "2026-09-05"
 workers_dev = true
 
-# Keep Worker execution near Singapore for lower-latency, more consistent access
-# to the Singapore storefront. This is a placement hint, not a fixed-egress-IP setting.
+# Keep Worker execution near Singapore for state/Telegram latency. Lazada source
+# reads are performed by redundant GitHub-hosted Chrome runners instead.
 [placement]
 region = "aws:ap-southeast-1"
 
-# Render Lazada through Cloudflare Browser Run rather than a plain Worker fetch.
-# Quick Actions are available on this compatibility date and require no API token.
-[browser]
-binding = "BROWSER"
-
 [triggers]
-# Cloudflare Cron Triggers use UTC. 00:00-15:59 UTC = 08:00-23:59 SGT.
-# The Cron is only a watchdog; the Durable Object performs adaptive source checks.
+# Watchdog only. In external-snapshot mode the Durable Object does not fetch Lazada.
 crons = ["*/5 0-15 * * *"]
 
 [durable_objects]
@@ -28,19 +22,18 @@ tag = "v1"
 new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
-# Browser Run free-tier experiment: 15-minute healthy checks keep browser minutes
-# bounded while still being useful for restock detection.
+EXTERNAL_SNAPSHOT_MODE = "true"
+# The GHA batch runs every 10 minutes; allow scheduling jitter before health is stale.
+EXTERNAL_HEALTH_STALE_SECONDS = "1200"
+# Retained for fallback/manual compatibility; no background source fetches occur
+# while EXTERNAL_SNAPSHOT_MODE=true.
 CHECK_INTERVAL_SECONDS = "900"
-# After a block clears, require a short run of clean browser snapshots.
 RECOVERY_INTERVAL_SECONDS = "300"
 RECOVERY_SUCCESS_TARGET = "6"
-# A block/challenge cools down 30m -> 1h -> 2h -> 4h -> 8h (capped).
 BLOCK_BACKOFF_SECONDS = "1800"
 ERROR_BACKOFF_SECONDS = "60"
 MISSING_CONFIRMATIONS = "2"
 TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
 ALERT_ON_FIRST_RUN = "false"
 ALLOW_EMPTY_TCG_SNAPSHOT = "false"
-# Health/debug endpoints now expose sourceEngine and failure details, so avoid
-# sending a Telegram heartbeat after every 15-minute successful check.
 DEBUG_NOTIFY_SUCCESS = "false"
