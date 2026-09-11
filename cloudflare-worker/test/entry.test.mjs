@@ -91,3 +91,81 @@ test("an alarm firing outside the active window reschedules itself for 08:00 SGT
     Date.now = originalDateNow;
   }
 });
+
+test("manual Browser Run check works outside the active window and resets old fetch block state", async () => {
+  const originalDateNow = Date.now;
+  const originalFetch = globalThis.fetch;
+  const alarms = [];
+  const stored = {
+    inventory: {},
+    meta: {
+      initialized: false,
+      recentEvents: [],
+      consecutiveFailures: 20,
+      blockStreak: 43,
+      recoveryMode: true,
+      recoverySuccesses: 0,
+      nextAllowedCheckAt: 0,
+    },
+  };
+  let browserCalls = 0;
+
+  try {
+    Date.now = () => Date.parse("2026-09-11T22:30:00.000Z"); // 06:30 SGT
+    globalThis.fetch = async () => assert.fail("direct Worker fetch must not be used for Lazada when Browser Run is bound");
+
+    const state = {
+      storage: {
+        get: async (key) => stored[key],
+        put: async (value) => Object.assign(stored, value),
+        setAlarm: async (at) => alarms.push(at),
+      },
+    };
+    const env = {
+      LAZADA_URL: "https://www.lazada.sg/shop/example",
+      CHECK_INTERVAL_SECONDS: "900",
+      RECOVERY_INTERVAL_SECONDS: "300",
+      RECOVERY_SUCCESS_TARGET: "6",
+      BLOCK_BACKOFF_SECONDS: "1800",
+      DEBUG_NOTIFY_SUCCESS: "false",
+      BROWSER: {
+        quickAction: async (action, options) => {
+          browserCalls += 1;
+          assert.equal(action, "content");
+          assert.equal(options.url, env.LAZADA_URL);
+          return new Response(JSON.stringify({
+            success: true,
+            result: JSON.stringify({
+              data: {
+                items: [
+                  {
+                    name: "Pokemon TCG Booster Box",
+                    itemUrl: "https://www.lazada.sg/products/test.html",
+                    inStock: true,
+                  },
+                ],
+              },
+            }),
+          }), { status: 200, headers: { "content-type": "application/json" } });
+        },
+      },
+    };
+
+    const monitor = new LazadaMonitor(state, env);
+    const result = await monitor.runCheck("manual");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.skipped, undefined);
+    assert.equal(browserCalls, 1);
+    assert.equal(stored.meta.sourceEngine, "cloudflare-browser-run");
+    assert.equal(stored.meta.consecutiveFailures, 0);
+    assert.equal(stored.meta.blockStreak, 0);
+    assert.equal(stored.meta.recoveryMode, false);
+    assert.equal(stored.meta.lastSource.engine, "cloudflare-browser-run");
+    assert.equal(Object.keys(stored.inventory).length, 1);
+    assert.equal(alarms.length, 1);
+  } finally {
+    Date.now = originalDateNow;
+    globalThis.fetch = originalFetch;
+  }
+});
