@@ -1,0 +1,72 @@
+name: Lazada Playwright Probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
+      - '.github/workflows/lazada-playwright-probe.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
+      - '.github/workflows/lazada-playwright-probe.yml'
+  schedule:
+    # Independent browser-origin comparison, every two hours during 08:00-24:00 SGT.
+    - cron: '17 8-22/2 * * *'
+      timezone: 'Asia/Singapore'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lazada-playwright-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.58.2-${{ runner.os }}
+
+      - name: Install Playwright
+        run: |
+          npm install --no-save --no-package-lock playwright@1.58.2
+          npx playwright install --with-deps chromium
+
+      - name: Probe Lazada with Chromium
+        id: probe
+        continue-on-error: true
+        env:
+          LAZADA_URL: ${{ vars.LAZADA_URL }}
+          PROBE_ARTIFACT_DIR: probe-artifacts
+        run: node cloudflare-worker/scripts/lazada-playwright-probe.mjs
+
+      - name: Record probe outcome
+        if: always()
+        run: |
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Workflow step outcome: **${{ steps.probe.outcome }}**" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ steps.probe.outcome }}" != "success" ]]; then
+            echo "The diagnostic artifact contains the rendered page and screenshot." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload probe diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lazada-playwright-probe-${{ github.run_id }}
+          path: probe-artifacts/
+          if-no-files-found: warn
+          retention-days: 3
