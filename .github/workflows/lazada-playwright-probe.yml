@@ -1,32 +1,43 @@
-name: Lazada Playwright Probe
+name: Lazada Playwright Monitor
 
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
+      - 'cloudflare-worker/src/gha-entry.js'
+      - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   push:
     branches: [main]
     paths:
       - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
+      - 'cloudflare-worker/src/gha-entry.js'
+      - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   schedule:
-    # Independent browser-origin comparison, every two hours during 08:00-24:00 SGT.
-    - cron: '17 8-22/2 * * *'
+    # Four fresh runners every 10 minutes during 08:00-24:00 SGT. Offset from
+    # minute 0 to reduce contention on GitHub's scheduled-workflow infrastructure.
+    - cron: '3-53/10 8-23 * * *'
       timezone: 'Asia/Singapore'
 
 permissions:
   contents: read
 
 concurrency:
-  group: lazada-playwright-probe-${{ github.ref }}
+  group: lazada-playwright-monitor-${{ github.event_name == 'schedule' && 'scheduled' || github.ref }}
   cancel-in-progress: true
 
 jobs:
   probe:
+    name: probe-${{ matrix.slot }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        slot: [1, 2, 3, 4]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -34,43 +45,81 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Restore Playwright browser cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-1.58.2-${{ runner.os }}
-
-      - name: Install Playwright
+      - name: Use preinstalled Chrome
         run: |
-          npm install --no-save --no-package-lock playwright@1.58.2
-          npx playwright install --with-deps chromium
+          google-chrome --version
+          npm install --no-save --no-package-lock playwright-core@1.58.2
 
-      - name: Probe Lazada with Chromium
+      - name: Probe Lazada and submit clean snapshot
         id: probe
         continue-on-error: true
         env:
           LAZADA_URL: ${{ vars.LAZADA_URL }}
-          PROBE_ARTIFACT_DIR: probe-artifacts
+          MONITOR_URL: https://lazada-tcg-restock-monitor.kingyx33.workers.dev
+          DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
+          INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
+          BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          PROBE_SLOT: ${{ matrix.slot }}
+          PROBE_ARTIFACT_DIR: probe-artifacts-${{ matrix.slot }}
+          TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
         run: node cloudflare-worker/scripts/lazada-playwright-probe.mjs
 
-      - name: Record probe outcome
-        if: always()
-        run: |
-          echo >> "$GITHUB_STEP_SUMMARY"
-          echo "Workflow step outcome: **${{ steps.probe.outcome }}**" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "${{ steps.probe.outcome }}" != "success" ]]; then
-            echo "The diagnostic artifact contains the rendered page and screenshot." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload probe diagnostics
+      - name: Upload runner diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lazada-playwright-probe-${{ github.run_id }}
-          path: probe-artifacts/
-          if-no-files-found: warn
+          name: lazada-probe-${{ github.run_id }}-${{ matrix.slot }}
+          path: probe-artifacts-${{ matrix.slot }}/
+          if-no-files-found: error
           retention-days: 3
 
-      - name: Fail blocked or unparseable probe
-        if: always() && steps.probe.outcome != 'success'
-        run: exit 1
+  verdict:
+    name: batch-verdict
+    if: always()
+    needs: probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Download runner diagnostics
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lazada-probe-${{ github.run_id }}-*
+          path: probe-results
+          merge-multiple: false
+
+      - name: Require at least one clean runner
+        env:
+          REQUIRE_INGEST: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, sys
+
+          rows = []
+          for path in pathlib.Path('probe-results').rglob('probe.json'):
+              data = json.loads(path.read_text())
+              rows.append(data)
+
+          rows.sort(key=lambda row: int(row.get('runnerSlot') or 0))
+          print('Lazada batch results:')
+          for row in rows:
+              print(
+                  f"slot={row.get('runnerSlot')} result={row.get('result')} "
+                  f"block={row.get('blockMarker')} products={row.get('tcgCandidates')} "
+                  f"ingest={row.get('ingestOk')} duplicate={row.get('ingestDuplicate')}"
+              )
+
+          require_ingest = os.environ.get('REQUIRE_INGEST', 'true').lower() == 'true'
+          if require_ingest:
+              ok = any(row.get('result') == 'success' and row.get('ingestOk') is True for row in rows)
+          else:
+              ok = any(row.get('result') == 'success' for row in rows)
+
+          if not rows:
+              print('No runner diagnostics were produced.', file=sys.stderr)
+              sys.exit(2)
+          if not ok:
+              print('All independent runners were blocked or failed this batch.', file=sys.stderr)
+              sys.exit(1)
+
+          print('Batch succeeded: at least one independent runner produced a clean snapshot.')
+          PY
