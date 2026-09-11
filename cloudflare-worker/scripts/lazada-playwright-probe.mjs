@@ -1,4 +1,5 @@
-import { chromium } from "playwright";
+import { chromium } from "playwright-core";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -11,12 +12,78 @@ const BLOCK_MARKERS = [
   "robot check",
   "are you a robot",
 ];
-const TCG_KEYWORDS = ["pokemon", "pokémon", "tcg", "trading card"];
-const artifactsDir = path.resolve(process.env.PROBE_ARTIFACT_DIR || "probe-artifacts");
-const lazadaUrl = process.env.LAZADA_URL;
 
-if (!lazadaUrl) {
-  throw new Error("LAZADA_URL is not configured");
+const lazadaUrl = process.env.LAZADA_URL;
+const monitorUrl = String(process.env.MONITOR_URL || "").replace(/\/$/, "");
+const debugToken = process.env.DEBUG_TOKEN || "";
+const ingestEnabled = String(process.env.INGEST_ENABLED || "false").toLowerCase() === "true";
+const batchId = process.env.BATCH_ID || `local-${Date.now()}`;
+const runnerSlot = process.env.PROBE_SLOT || "1";
+const artifactsDir = path.resolve(process.env.PROBE_ARTIFACT_DIR || `probe-artifacts-${runnerSlot}`);
+const tcgKeywords = String(process.env.TCG_KEYWORDS || "pokemon,pokémon,tcg,trading card")
+  .split(",")
+  .map((value) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim())
+  .filter(Boolean);
+
+if (!lazadaUrl) throw new Error("LAZADA_URL is not configured");
+if (ingestEnabled && (!monitorUrl || !debugToken)) {
+  throw new Error("MONITOR_URL/DEBUG_TOKEN are required when INGEST_ENABLED=true");
+}
+
+function parseBooleanSignal(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "available", "in stock", "instock"].includes(normalized)) return true;
+    if (["false", "0", "no", "unavailable", "out of stock", "sold out"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function inferInStock(item) {
+  if (Object.prototype.hasOwnProperty.call(item, "inStock")) return parseBooleanSignal(item.inStock);
+  if (Object.prototype.hasOwnProperty.call(item, "soldOut")) {
+    const soldOut = parseBooleanSignal(item.soldOut);
+    return soldOut === null ? null : !soldOut;
+  }
+  for (const key of ["stock", "stockCount", "quantity", "availableStock"]) {
+    if (Object.prototype.hasOwnProperty.call(item, key)) {
+      const value = Number(item[key]);
+      if (Number.isFinite(value)) return value > 0;
+    }
+  }
+  const availability = String(item.availability || item.stockStatus || item.status || "").toLowerCase();
+  if (["out of stock", "sold out", "unavailable"].some((value) => availability.includes(value))) return false;
+  if (["in stock", "available"].some((value) => availability.includes(value))) return true;
+  return null;
+}
+
+function normalizeProduct(item) {
+  let itemUrl = item.itemUrl || item.url || item.productUrl || "";
+  if (typeof itemUrl === "string" && itemUrl.startsWith("//")) itemUrl = `https:${itemUrl}`;
+
+  let price = item.price ?? item.salePrice ?? null;
+  if (price !== null && price !== "") {
+    const parsed = Number(price);
+    price = Number.isFinite(parsed) ? parsed : null;
+  } else {
+    price = null;
+  }
+
+  return {
+    name: String(item.name || item.title || item.productName || ""),
+    price,
+    priceShow: String(item.priceShow || item.originalPriceShow || item.salePriceShow || ""),
+    inStock: inferInStock(item),
+    sold: String(item.itemSoldCntShow || item.itemSoldCnt || item.sold || ""),
+    url: itemUrl || null,
+    image: item.image || item.imageUrl || null,
+    skuId: item.skuId || item.itemId || item.productId || null,
+    sku: item.sku || item.skuCode || null,
+    sellerName: item.sellerName || null,
+    sellerId: item.sellerId || null,
+  };
 }
 
 function parseJsonObjectAt(text, start) {
@@ -24,7 +91,6 @@ function parseJsonObjectAt(text, start) {
   let depth = 0;
   let inString = false;
   let escaped = false;
-
   for (let i = start; i < text.length; i += 1) {
     const char = text[i];
     if (inString) {
@@ -33,7 +99,6 @@ function parseJsonObjectAt(text, start) {
       else if (char === '"') inString = false;
       continue;
     }
-
     if (char === '"') inString = true;
     else if (char === "{") depth += 1;
     else if (char === "}") {
@@ -69,74 +134,99 @@ function* candidateItemLists(node, depth = 0) {
     return;
   }
   if (typeof node !== "object") return;
-
   for (const [key, value] of Object.entries(node)) {
     if (["listItems", "items", "products", "productList"].includes(key) && Array.isArray(value)) {
-      const dictItems = value.filter((x) => x && typeof x === "object" && !Array.isArray(x));
-      if (dictItems.length) yield dictItems;
+      const items = value.filter((item) => item && typeof item === "object" && !Array.isArray(item));
+      if (items.length) yield items;
     }
     yield* candidateItemLists(value, depth + 1);
   }
 }
 
-function productName(item) {
-  return String(item?.name || item?.title || item?.productName || "");
-}
-
-function inspectPayload(sourceBody) {
+function parseProducts(sourceBody) {
   let payload = null;
   try {
     payload = JSON.parse(sourceBody);
   } catch {
     payload = extractEmbeddedJson(sourceBody);
   }
-
   if (!payload || typeof payload !== "object") {
-    return { payloadFound: false, productCandidates: 0, tcgCandidates: 0 };
+    return { payloadFound: false, products: [], tcgProducts: [] };
   }
 
   let best = [];
   for (const items of candidateItemLists(payload)) {
-    const recognizable = items.filter((item) => {
-      const name = productName(item);
-      return Boolean(name && (item.itemUrl || item.url || item.productUrl || item.skuId || item.itemId || item.productId || item.sku));
-    });
-    if (recognizable.length > best.length) best = recognizable;
+    const normalized = items
+      .map(normalizeProduct)
+      .filter((product) => product.name && (product.url || product.skuId || product.sku));
+    if (normalized.length > best.length) best = normalized;
   }
 
-  const tcgCandidates = best.filter((item) => {
-    const name = productName(item).normalize("NFKD").toLowerCase();
-    return TCG_KEYWORDS.some((keyword) => name.includes(keyword));
-  }).length;
+  const tcgProducts = best.filter((product) => {
+    const name = product.name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return tcgKeywords.some((keyword) => name.includes(keyword));
+  });
 
-  return {
-    payloadFound: true,
-    productCandidates: best.length,
-    tcgCandidates,
-  };
+  return { payloadFound: true, products: best, tcgProducts };
+}
+
+function chromeExecutable() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+  ].filter(Boolean);
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (!found) throw new Error("No preinstalled Chrome/Chromium executable found");
+  return found;
+}
+
+async function postSnapshot(snapshot) {
+  const response = await fetch(`${monitorUrl}/snapshot`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${debugToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(snapshot),
+  });
+  const text = await response.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = { raw: text.slice(0, 500) };
+  }
+  return { ok: response.ok && body?.ok === true, status: response.status, body };
 }
 
 async function appendSummary(diagnostics) {
   if (!process.env.GITHUB_STEP_SUMMARY) return;
   const lines = [
-    "## Lazada Playwright probe",
+    "## Lazada Playwright runner",
     "",
+    `- Slot: ${runnerSlot}`,
     `- Result: **${diagnostics.result}**`,
     `- HTTP status: ${diagnostics.httpStatus ?? "unknown"}`,
-    `- Final URL: ${diagnostics.finalUrl}`,
-    `- Title: ${diagnostics.title || "(empty)"}`,
     `- Block marker: ${diagnostics.blockMarker || "none"}`,
-    `- HTML bytes: ${diagnostics.htmlBytes}`,
-    `- Embedded payload: ${diagnostics.payloadFound}`,
-    `- Product candidates: ${diagnostics.productCandidates}`,
-    `- TCG candidates: ${diagnostics.tcgCandidates}`,
+    `- Products: ${diagnostics.productCandidates}`,
+    `- TCG products: ${diagnostics.tcgCandidates}`,
+    `- Ingest enabled: ${ingestEnabled}`,
+    `- Ingest OK: ${diagnostics.ingestOk ?? false}`,
   ];
   await writeFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`, { flag: "a" });
 }
 
 await mkdir(artifactsDir, { recursive: true });
+const staggerMs = Math.max(0, (Number.parseInt(runnerSlot, 10) - 1) * 7000);
+if (staggerMs) await new Promise((resolve) => setTimeout(resolve, staggerMs));
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: chromeExecutable(),
+});
 let exitCode = 0;
 
 try {
@@ -146,55 +236,75 @@ try {
     viewport: { width: 1440, height: 1200 },
   });
   const page = await context.newPage();
-
   const response = await page.goto(lazadaUrl, {
     waitUntil: "domcontentloaded",
     timeout: 45_000,
   });
   await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
-  await page.waitForTimeout(2_000);
+  await page.waitForTimeout(1500);
 
+  const checkedAt = new Date().toISOString();
   const html = await page.content();
   const title = await page.title();
   const finalUrl = page.url();
   const bodyText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
   const lower = `${title}\n${bodyText}\n${html}`.toLowerCase();
   const blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
-  // Chromium wraps application/json responses in an HTML <pre>; body.innerText
-  // recovers the original JSON string while page.content() is retained as an artifact.
-  const payload = inspectPayload(bodyText || html);
+  const parsed = parseProducts(bodyText || html);
 
   let result = "success";
   if (blockMarker || [403, 429].includes(response?.status())) {
     result = "blocked";
     exitCode = 2;
-  } else if (!payload.payloadFound || payload.productCandidates === 0) {
+  } else if (!parsed.payloadFound || parsed.products.length === 0) {
     result = "unparseable";
     exitCode = 3;
-  } else if (payload.tcgCandidates === 0) {
+  } else if (parsed.tcgProducts.length === 0) {
     result = "no-tcg-products";
     exitCode = 4;
   }
 
+  let ingest = null;
+  if (result === "success" && ingestEnabled) {
+    ingest = await postSnapshot({
+      batchId,
+      runnerSlot,
+      checkedAt,
+      httpStatus: response?.status() ?? null,
+      finalUrl,
+      products: parsed.tcgProducts,
+    });
+    if (!ingest.ok) exitCode = 5;
+  }
+
   const diagnostics = {
-    checkedAt: new Date().toISOString(),
+    checkedAt,
+    batchId,
+    runnerSlot,
     result,
     httpStatus: response?.status() ?? null,
     finalUrl,
     title,
     blockMarker,
     htmlBytes: Buffer.byteLength(html),
-    bodyPreview: bodyText.replace(/\s+/g, " ").slice(0, 1000),
-    ...payload,
+    bodyPreview: bodyText.replace(/\s+/g, " ").slice(0, 700),
+    payloadFound: parsed.payloadFound,
+    productCandidates: parsed.products.length,
+    tcgCandidates: parsed.tcgProducts.length,
+    ingestEnabled,
+    ingestOk: ingest?.ok ?? false,
+    ingestStatus: ingest?.status ?? null,
+    ingestDuplicate: ingest?.body?.duplicate ?? null,
   };
 
-  await Promise.all([
-    writeFile(path.join(artifactsDir, "probe.json"), `${JSON.stringify(diagnostics, null, 2)}\n`),
-    writeFile(path.join(artifactsDir, "page.html"), html),
-    page.screenshot({ path: path.join(artifactsDir, "screenshot.png"), fullPage: true }),
-    appendSummary(diagnostics),
-  ]);
-
+  await writeFile(path.join(artifactsDir, "probe.json"), `${JSON.stringify(diagnostics, null, 2)}\n`);
+  if (result !== "success") {
+    await Promise.all([
+      writeFile(path.join(artifactsDir, "page.html"), html),
+      page.screenshot({ path: path.join(artifactsDir, "screenshot.png"), fullPage: true }),
+    ]);
+  }
+  await appendSummary(diagnostics);
   console.log(JSON.stringify(diagnostics, null, 2));
 } finally {
   await browser.close();
