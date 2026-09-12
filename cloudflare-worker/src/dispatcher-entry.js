@@ -7,36 +7,50 @@ const DISPATCH_BUCKET_MS = 60 * 1000;
 
 export class LazadaMonitor extends ExternalSnapshotMonitor {
   async ingestSnapshot(payload) {
-    const batchId = String(payload?.batchId || "").trim();
-    const checkedAt = String(payload?.checkedAt || "").trim();
-    const checkedAtMs = Date.parse(checkedAt);
+    // Serialize snapshot decisions inside this Durable Object instance. The first
+    // clean runner can send Telegram immediately, while later runners wait only
+    // for that ingestion decision instead of racing and duplicating an alert.
+    const previousIngest = this._ingestTail || Promise.resolve();
+    let releaseIngest;
+    this._ingestTail = new Promise((resolve) => {
+      releaseIngest = resolve;
+    });
 
-    if (batchId && Number.isFinite(checkedAtMs)) {
-      const loaded = await this.loadState();
-      const lastSuccessMs = loaded.meta.lastSuccessAt ? Date.parse(loaded.meta.lastSuccessAt) : 0;
-      if (
-        loaded.meta.lastIngestBatchId &&
-        loaded.meta.lastIngestBatchId !== batchId &&
-        Number.isFinite(lastSuccessMs) &&
-        lastSuccessMs >= checkedAtMs
-      ) {
-        this.log(loaded.meta, "external.snapshot.superseded", {
-          batchId,
-          checkedAt,
-          acceptedBatchId: loaded.meta.lastIngestBatchId,
-          lastSuccessAt: loaded.meta.lastSuccessAt,
-        });
-        return {
-          ok: true,
-          duplicate: false,
-          superseded: true,
-          acceptedBatchId: loaded.meta.lastIngestBatchId,
-          lastSuccessAt: loaded.meta.lastSuccessAt,
-        };
+    await previousIngest;
+    try {
+      const batchId = String(payload?.batchId || "").trim();
+      const checkedAt = String(payload?.checkedAt || "").trim();
+      const checkedAtMs = Date.parse(checkedAt);
+
+      if (batchId && Number.isFinite(checkedAtMs)) {
+        const loaded = await this.loadState();
+        const lastSuccessMs = loaded.meta.lastSuccessAt ? Date.parse(loaded.meta.lastSuccessAt) : 0;
+        if (
+          loaded.meta.lastIngestBatchId &&
+          loaded.meta.lastIngestBatchId !== batchId &&
+          Number.isFinite(lastSuccessMs) &&
+          lastSuccessMs >= checkedAtMs
+        ) {
+          this.log(loaded.meta, "external.snapshot.superseded", {
+            batchId,
+            checkedAt,
+            acceptedBatchId: loaded.meta.lastIngestBatchId,
+            lastSuccessAt: loaded.meta.lastSuccessAt,
+          });
+          return {
+            ok: true,
+            duplicate: false,
+            superseded: true,
+            acceptedBatchId: loaded.meta.lastIngestBatchId,
+            lastSuccessAt: loaded.meta.lastSuccessAt,
+          };
+        }
       }
-    }
 
-    return super.ingestSnapshot(payload);
+      return await super.ingestSnapshot(payload);
+    } finally {
+      releaseIngest();
+    }
   }
 }
 
