@@ -1,10 +1,44 @@
-import ghaWorker, { LazadaMonitor } from "./gha-entry.js";
-
-export { LazadaMonitor };
+import ghaWorker, { LazadaMonitor as ExternalSnapshotMonitor } from "./gha-entry.js";
 
 const DEFAULT_GITHUB_REPOSITORY = "kingyx3/alert";
 const DEFAULT_GITHUB_WORKFLOW = "lazada-playwright-probe.yml";
 const DEFAULT_GITHUB_REF = "main";
+const DISPATCH_BUCKET_MS = 60 * 1000;
+
+export class LazadaMonitor extends ExternalSnapshotMonitor {
+  async ingestSnapshot(payload) {
+    const batchId = String(payload?.batchId || "").trim();
+    const checkedAt = String(payload?.checkedAt || "").trim();
+    const checkedAtMs = Date.parse(checkedAt);
+
+    if (batchId && Number.isFinite(checkedAtMs)) {
+      const loaded = await this.loadState();
+      const lastSuccessMs = loaded.meta.lastSuccessAt ? Date.parse(loaded.meta.lastSuccessAt) : 0;
+      if (
+        loaded.meta.lastIngestBatchId &&
+        loaded.meta.lastIngestBatchId !== batchId &&
+        Number.isFinite(lastSuccessMs) &&
+        lastSuccessMs >= checkedAtMs
+      ) {
+        this.log(loaded.meta, "external.snapshot.superseded", {
+          batchId,
+          checkedAt,
+          acceptedBatchId: loaded.meta.lastIngestBatchId,
+          lastSuccessAt: loaded.meta.lastSuccessAt,
+        });
+        return {
+          ok: true,
+          duplicate: false,
+          superseded: true,
+          acceptedBatchId: loaded.meta.lastIngestBatchId,
+          lastSuccessAt: loaded.meta.lastSuccessAt,
+        };
+      }
+    }
+
+    return super.ingestSnapshot(payload);
+  }
+}
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
@@ -28,7 +62,7 @@ export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
     return { ok: false, skipped: true, reason: "github_actions_token_missing" };
   }
 
-  const dispatchKey = `cf-${Math.floor(Number(scheduledTime || Date.now()) / 600000)}`;
+  const dispatchKey = `cf-${Math.floor(Number(scheduledTime || Date.now()) / DISPATCH_BUCKET_MS)}`;
   const endpoint = `https://api.github.com/repos/${config.repository}/actions/workflows/${encodeURIComponent(config.workflow)}/dispatches`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -89,11 +123,12 @@ export default {
       return jsonResponse({
         status: config.configured ? "ok" : "fallback",
         scheduler: "cloudflare-cron",
+        frequencySeconds: 60,
         githubDispatchConfigured: config.configured,
         repository: config.repository,
         workflow: config.workflow,
         ref: config.ref,
-        fallback: "github-actions-schedule",
+        fallback: "github-actions-schedule-every-5-minutes",
       });
     }
     return ghaWorker.fetch(request, env, ctx);
