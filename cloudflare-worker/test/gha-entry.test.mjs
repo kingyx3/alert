@@ -142,6 +142,86 @@ test("older overlapping minute snapshots cannot roll inventory backward", async 
   assert.equal(meta.lastSuccessAt, newerCheckedAt);
 });
 
+test("first clean concurrent runner sends exactly one Telegram restock alert", async () => {
+  const state = makeState();
+  const monitor = new LazadaMonitor(state, {
+    EXTERNAL_SNAPSHOT_MODE: "true",
+    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    MISSING_CONFIRMATIONS: "2",
+    ALERT_ON_FIRST_RUN: "false",
+    TELEGRAM_BOT_TOKEN: "test-bot-token",
+    TELEGRAM_CHANNEL_ID: "test-channel",
+  });
+
+  const initialCheckedAt = new Date(Date.now() - 5000).toISOString();
+  await monitor.ingestSnapshot({
+    batchId: "cf-initial",
+    runnerSlot: "1",
+    checkedAt: initialCheckedAt,
+    products: [product({ inStock: false })],
+  });
+
+  const originalFetch = globalThis.fetch;
+  let telegramCalls = 0;
+  let markTelegramStarted;
+  let releaseTelegram;
+  const telegramStarted = new Promise((resolve) => {
+    markTelegramStarted = resolve;
+  });
+  const telegramRelease = new Promise((resolve) => {
+    releaseTelegram = resolve;
+  });
+
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    if (!target.startsWith("https://api.telegram.org/")) {
+      throw new Error(`Unexpected fetch in alert test: ${target}`);
+    }
+    telegramCalls += 1;
+    markTelegramStarted();
+    await telegramRelease;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const checkedAt = new Date(Date.now() - 1000).toISOString();
+    const firstRunner = monitor.ingestSnapshot({
+      batchId: "cf-restock",
+      runnerSlot: "1",
+      checkedAt,
+      products: [product({ inStock: true })],
+    });
+
+    await telegramStarted;
+
+    const secondRunner = monitor.ingestSnapshot({
+      batchId: "cf-restock",
+      runnerSlot: "2",
+      checkedAt,
+      products: [product({ inStock: true })],
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(telegramCalls, 1, "later runners must not race the active Telegram alert");
+
+    releaseTelegram();
+    const [first, second] = await Promise.all([firstRunner, secondRunner]);
+
+    assert.equal(first.ok, true);
+    assert.equal(first.restocked, 1);
+    assert.equal(second.ok, true);
+    assert.equal(second.duplicate, true);
+    assert.equal(telegramCalls, 1);
+    assert.equal(state.values.get("meta").lastAlertAt, checkedAt);
+  } finally {
+    releaseTelegram();
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Cloudflare dispatcher safely skips when no GitHub token is configured", async () => {
   const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 0, 3, 0));
   assert.deepEqual(result, {
