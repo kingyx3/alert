@@ -215,13 +215,12 @@ async function appendSummary(diagnostics) {
     `- TCG products: ${diagnostics.tcgCandidates}`,
     `- Ingest enabled: ${ingestEnabled}`,
     `- Ingest OK: ${diagnostics.ingestOk ?? false}`,
+    `- Restocked: ${diagnostics.ingestRestocked ?? 0}`,
   ];
   await writeFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`, { flag: "a" });
 }
 
 await mkdir(artifactsDir, { recursive: true });
-const staggerMs = Math.max(0, (Number.parseInt(runnerSlot, 10) - 1) * 7000);
-if (staggerMs) await new Promise((resolve) => setTimeout(resolve, staggerMs));
 
 const browser = await chromium.launch({
   headless: true,
@@ -240,20 +239,38 @@ try {
     waitUntil: "domcontentloaded",
     timeout: 45_000,
   });
-  await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
-  await page.waitForTimeout(1500);
 
+  // The Lazada AJAX endpoint normally returns the inventory JSON as the main
+  // response. Parse that response first and submit it immediately. DOM capture,
+  // screenshots, artifacts, and other runners must never sit on the alert path.
   const checkedAt = new Date().toISOString();
-  const html = await page.content();
-  const title = await page.title();
+  const httpStatus = response?.status() ?? null;
   const finalUrl = page.url();
-  const bodyText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
-  const lower = `${title}\n${bodyText}\n${html}`.toLowerCase();
-  const blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
-  const parsed = parseProducts(bodyText || html);
+  const sourceBody = await response?.text().catch(() => "") || "";
+  let title = "";
+  let html = "";
+  let bodyText = "";
+  let lower = `${finalUrl}\n${sourceBody}`.toLowerCase();
+  let blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
+  let parsed = parseProducts(sourceBody);
+
+  // Only pay the DOM-inspection cost when the main response is blocked or is
+  // not directly parseable. A clean JSON response reaches /snapshot first.
+  if (blockMarker || !parsed.payloadFound || parsed.products.length === 0) {
+    [title, html, bodyText] = await Promise.all([
+      page.title().catch(() => ""),
+      page.content().catch(() => ""),
+      page.locator("body").innerText({ timeout: 5_000 }).catch(() => ""),
+    ]);
+    lower = `${finalUrl}\n${title}\n${bodyText}\n${html}`.toLowerCase();
+    blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
+    if (!parsed.payloadFound || parsed.products.length === 0) {
+      parsed = parseProducts(sourceBody || bodyText || html);
+    }
+  }
 
   let result = "success";
-  if (blockMarker || [403, 429].includes(response?.status())) {
+  if (blockMarker || [403, 429].includes(httpStatus)) {
     result = "blocked";
     exitCode = 2;
   } else if (!parsed.payloadFound || parsed.products.length === 0) {
@@ -270,24 +287,26 @@ try {
       batchId,
       runnerSlot,
       checkedAt,
-      httpStatus: response?.status() ?? null,
+      httpStatus,
       finalUrl,
       products: parsed.tcgProducts,
     });
     if (!ingest.ok) exitCode = 5;
   }
 
+  const diagnosticBody = bodyText || sourceBody;
+  const diagnosticHtml = html || sourceBody;
   const diagnostics = {
     checkedAt,
     batchId,
     runnerSlot,
     result,
-    httpStatus: response?.status() ?? null,
+    httpStatus,
     finalUrl,
     title,
     blockMarker,
-    htmlBytes: Buffer.byteLength(html),
-    bodyPreview: bodyText.replace(/\s+/g, " ").slice(0, 700),
+    htmlBytes: Buffer.byteLength(diagnosticHtml),
+    bodyPreview: diagnosticBody.replace(/\s+/g, " ").slice(0, 700),
     payloadFound: parsed.payloadFound,
     productCandidates: parsed.products.length,
     tcgCandidates: parsed.tcgProducts.length,
@@ -295,12 +314,15 @@ try {
     ingestOk: ingest?.ok ?? false,
     ingestStatus: ingest?.status ?? null,
     ingestDuplicate: ingest?.body?.duplicate ?? null,
+    ingestSuperseded: ingest?.body?.superseded ?? null,
+    ingestRestocked: ingest?.body?.restocked ?? 0,
   };
 
   await writeFile(path.join(artifactsDir, "probe.json"), `${JSON.stringify(diagnostics, null, 2)}\n`);
   if (result !== "success") {
+    if (!html) html = await page.content().catch(() => sourceBody);
     await Promise.all([
-      writeFile(path.join(artifactsDir, "page.html"), html),
+      writeFile(path.join(artifactsDir, "page.html"), html || sourceBody),
       page.screenshot({ path: path.join(artifactsDir, "screenshot.png"), fullPage: true }),
     ]);
   }
