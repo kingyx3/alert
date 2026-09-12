@@ -2,10 +2,24 @@ name: Lazada Playwright Monitor
 
 on:
   workflow_dispatch:
+    inputs:
+      trigger_source:
+        description: Dispatch source
+        required: false
+        type: string
+      dispatch_key:
+        description: Stable batch key supplied by Cloudflare
+        required: false
+        type: string
+      scheduled_at:
+        description: Cloudflare scheduled timestamp
+        required: false
+        type: string
   pull_request:
     paths:
       - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
       - 'cloudflare-worker/src/gha-entry.js'
+      - 'cloudflare-worker/src/dispatcher-entry.js'
       - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   push:
@@ -13,19 +27,20 @@ on:
     paths:
       - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
       - 'cloudflare-worker/src/gha-entry.js'
+      - 'cloudflare-worker/src/dispatcher-entry.js'
       - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   schedule:
-    # Four fresh primary runners every 10 minutes during 08:00-24:00 SGT.
-    # Minute 3 avoids the busiest top-of-hour scheduling boundary.
-    - cron: '3-53/10 8-23 * * *'
+    # Delayed fallback only. Cloudflare dispatches the primary batch at :03/:13/etc.
+    # If a fresh snapshot already exists, this scheduled run exits before Chrome starts.
+    - cron: '8-58/10 8-23 * * *'
       timezone: 'Asia/Singapore'
 
 permissions:
   contents: read
 
 concurrency:
-  group: lazada-playwright-monitor-${{ github.event_name == 'schedule' && 'scheduled' || github.ref }}
+  group: lazada-playwright-monitor-${{ github.event_name == 'workflow_dispatch' && 'cloudflare-dispatch' || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,7 +51,59 @@ jobs:
     name: source-gate
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    outputs:
+      should_run: ${{ steps.route.outputs.should_run }}
+      batch_id: ${{ steps.route.outputs.batch_id }}
     steps:
+      - name: Decide whether this run should probe Lazada
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_DISPATCH_KEY: ${{ inputs.dispatch_key }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          batch_id="${INPUT_DISPATCH_KEY:-}"
+          if [[ -z "${batch_id}" ]]; then
+            batch_id="${RUN_ID}-${RUN_ATTEMPT}"
+          fi
+          should_run=true
+
+          if [[ "${EVENT_NAME}" == "schedule" ]]; then
+            body="$(curl --silent --show-error --max-time 10 "${MONITOR_URL}/healthz" || true)"
+            echo "Fallback health check: ${body}"
+            if HEALTH_JSON="${body}" python - <<'PY'
+          import datetime, json, os, sys
+          try:
+              health = json.loads(os.environ.get('HEALTH_JSON') or '{}')
+              last = health.get('lastSuccessAt')
+              if not last:
+                  raise ValueError('no lastSuccessAt')
+              stamp = datetime.datetime.fromisoformat(last.replace('Z', '+00:00'))
+              age = (datetime.datetime.now(datetime.timezone.utc) - stamp).total_seconds()
+              fresh = (
+                  health.get('externalSnapshotMode') is True
+                  and health.get('sourceEngine') == 'github-actions-playwright'
+                  and 0 <= age < 7 * 60
+              )
+              print(f"Last accepted snapshot age: {age:.1f}s; fresh={fresh}")
+              sys.exit(0 if fresh else 1)
+          except Exception as exc:
+              print(f"Health freshness check could not confirm a recent snapshot: {exc}")
+              sys.exit(1)
+          PY
+            then
+              should_run=false
+              echo "Primary Cloudflare-dispatched batch is already fresh; skipping fallback browsers."
+            else
+              echo "No fresh primary snapshot; running delayed GitHub fallback browsers."
+            fi
+          fi
+
+          echo "should_run=${should_run}" >> "${GITHUB_OUTPUT}"
+          echo "batch_id=${batch_id}" >> "${GITHUB_OUTPUT}"
+
       - name: Wait for external-snapshot Worker after a push
         if: github.event_name == 'push'
         run: |
@@ -54,13 +121,10 @@ jobs:
           echo "Worker did not expose external-snapshot mode before timeout." >&2
           exit 1
 
-      - name: No deployment wait needed
-        if: github.event_name != 'push'
-        run: echo "Using the already-deployed Worker."
-
   probe:
     name: primary-${{ matrix.slot }}
     needs: gate
+    if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -87,7 +151,7 @@ jobs:
           LAZADA_URL: ${{ vars.LAZADA_URL }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
           INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
-          BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          BATCH_ID: ${{ needs.gate.outputs.batch_id }}
           PROBE_SLOT: ${{ matrix.slot }}
           PROBE_ARTIFACT_DIR: probe-artifacts-${{ matrix.slot }}
           TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
@@ -104,7 +168,7 @@ jobs:
 
   primary_assessment:
     name: primary-assessment
-    if: always()
+    if: always() && needs.probe.result != 'skipped'
     needs: probe
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -150,7 +214,7 @@ jobs:
 
   rescue:
     name: rescue-${{ matrix.slot }}
-    needs: primary_assessment
+    needs: [gate, primary_assessment]
     if: needs.primary_assessment.outputs.need_rescue == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -178,7 +242,7 @@ jobs:
           LAZADA_URL: ${{ vars.LAZADA_URL }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
           INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
-          BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          BATCH_ID: ${{ needs.gate.outputs.batch_id }}
           PROBE_SLOT: ${{ matrix.slot }}
           PROBE_ARTIFACT_DIR: rescue-artifacts-${{ matrix.slot }}
           TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
@@ -195,8 +259,8 @@ jobs:
 
   verdict:
     name: batch-verdict
-    if: always()
-    needs: [probe, primary_assessment, rescue]
+    if: always() && needs.probe.result != 'skipped'
+    needs: [gate, probe, primary_assessment, rescue]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -245,7 +309,7 @@ jobs:
       - name: Verify live Worker accepted this batch
         if: github.event_name != 'pull_request'
         env:
-          EXPECTED_BATCH_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          EXPECTED_BATCH_ID: ${{ needs.gate.outputs.batch_id }}
         run: |
           set -euo pipefail
           body="$(curl --silent --show-error --fail --max-time 15 "${MONITOR_URL}/healthz")"
