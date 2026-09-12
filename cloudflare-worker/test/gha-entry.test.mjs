@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { LazadaMonitor } from "../src/gha-entry.js";
+import { LazadaMonitor, dispatchGithubWorkflow } from "../src/dispatcher-entry.js";
 
 function makeState() {
   const values = new Map();
@@ -102,4 +102,50 @@ test("external snapshots are accepted once per GHA batch", async () => {
   assert.equal(meta.consecutiveFailures, 0);
   assert.equal(meta.blockStreak, 0);
   assert.equal(meta.recoveryMode, false);
+});
+
+test("Cloudflare dispatcher safely skips when no GitHub token is configured", async () => {
+  const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 0, 3, 0));
+  assert.deepEqual(result, {
+    ok: false,
+    skipped: true,
+    reason: "github_actions_token_missing",
+  });
+});
+
+test("Cloudflare dispatcher sends workflow_dispatch with a stable slot key", async () => {
+  const originalFetch = globalThis.fetch;
+  let request = null;
+  globalThis.fetch = async (url, init) => {
+    request = { url: String(url), init };
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const scheduledTime = Date.UTC(2026, 8, 12, 0, 3, 0);
+    const result = await dispatchGithubWorkflow({
+      GITHUB_ACTIONS_TOKEN: "test-token",
+      GITHUB_DISPATCH_REPOSITORY: "kingyx3/alert",
+      GITHUB_DISPATCH_WORKFLOW: "lazada-playwright-probe.yml",
+      GITHUB_DISPATCH_REF: "main",
+    }, scheduledTime);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, 204);
+    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 600000)}`);
+    assert.equal(
+      request.url,
+      "https://api.github.com/repos/kingyx3/alert/actions/workflows/lazada-playwright-probe.yml/dispatches",
+    );
+    assert.equal(request.init.method, "POST");
+    assert.equal(request.init.headers.authorization, "Bearer test-token");
+
+    const body = JSON.parse(request.init.body);
+    assert.equal(body.ref, "main");
+    assert.equal(body.inputs.trigger_source, "cloudflare-cron");
+    assert.equal(body.inputs.dispatch_key, result.dispatchKey);
+    assert.equal(body.inputs.scheduled_at, new Date(scheduledTime).toISOString());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
