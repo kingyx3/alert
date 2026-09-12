@@ -31,16 +31,19 @@ on:
       - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   schedule:
-    # Delayed fallback only. Cloudflare dispatches the primary batch at :03/:13/etc.
-    # If a fresh snapshot already exists, this scheduled run exits before Chrome starts.
-    - cron: '8-58/10 8-23 * * *'
+    # Delayed fallback only. Cloudflare dispatches the primary batch every minute.
+    # GitHub's minimum schedule interval is 5 minutes, so this only fills gaps.
+    - cron: '*/5 8-23 * * *'
       timezone: 'Asia/Singapore'
 
 permissions:
   contents: read
 
 concurrency:
-  group: lazada-playwright-monitor-${{ github.event_name == 'workflow_dispatch' && 'cloudflare-dispatch' || github.ref }}
+  # Cloudflare-dispatched minute batches get independent groups so a new minute does
+  # not cancel an older batch that is still finishing. Scheduled fallbacks remain
+  # serialized on the ref.
+  group: lazada-playwright-monitor-${{ github.event_name == 'workflow_dispatch' && (inputs.dispatch_key || github.run_id) || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -85,7 +88,7 @@ jobs:
               fresh = (
                   health.get('externalSnapshotMode') is True
                   and health.get('sourceEngine') == 'github-actions-playwright'
-                  and 0 <= age < 7 * 60
+                  and 0 <= age < 3 * 60
               )
               print(f"Last accepted snapshot age: {age:.1f}s; fresh={fresh}")
               sys.exit(0 if fresh else 1)
@@ -95,9 +98,9 @@ jobs:
           PY
             then
               should_run=false
-              echo "Primary Cloudflare-dispatched batch is already fresh; skipping fallback browsers."
+              echo "Primary Cloudflare-dispatched snapshots are fresh; skipping fallback browsers."
             else
-              echo "No fresh primary snapshot; running delayed GitHub fallback browsers."
+              echo "No snapshot within three minutes; running GitHub fallback browsers."
             fi
           fi
 
@@ -306,7 +309,7 @@ jobs:
           print('Batch succeeded: at least one independent runner produced a clean snapshot.')
           PY
 
-      - name: Verify live Worker accepted this batch
+      - name: Verify live Worker accepted this batch or a newer minute batch
         if: github.event_name != 'pull_request'
         env:
           EXPECTED_BATCH_ID: ${{ needs.gate.outputs.batch_id }}
@@ -316,16 +319,33 @@ jobs:
           echo "${body}"
           HEALTH_JSON="${body}" python - <<'PY'
           import json, os, sys
+
           health = json.loads(os.environ['HEALTH_JSON'])
           expected = os.environ['EXPECTED_BATCH_ID']
+          actual = health.get('lastAcceptedBatchId') or ''
+
+          def cloudflare_minute(value):
+              if not value.startswith('cf-'):
+                  return None
+              try:
+                  return int(value[3:])
+              except ValueError:
+                  return None
+
+          expected_minute = cloudflare_minute(expected)
+          actual_minute = cloudflare_minute(actual)
+          accepted_or_newer = actual == expected
+          if expected_minute is not None and actual_minute is not None:
+              accepted_or_newer = actual_minute >= expected_minute
+
           checks = {
               'externalSnapshotMode': health.get('externalSnapshotMode') is True,
               'sourceEngine': health.get('sourceEngine') == 'github-actions-playwright',
-              'lastAcceptedBatchId': health.get('lastAcceptedBatchId') == expected,
+              'acceptedBatchOrNewer': accepted_or_newer,
               'noBlockStreak': int(health.get('blockStreak') or 0) == 0,
           }
-          print('Health verification:', checks)
+          print('Health verification:', checks, 'expected=', expected, 'actual=', actual)
           if not all(checks.values()):
-              print(f"Worker health did not confirm batch {expected}", file=sys.stderr)
+              print(f"Worker health did not confirm batch {expected} or a newer minute batch", file=sys.stderr)
               sys.exit(1)
           PY
