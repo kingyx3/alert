@@ -1,5 +1,5 @@
 name = "lazada-tcg-restock-monitor"
-main = "src/gha-entry.js"
+main = "src/dispatcher-entry.js"
 compatibility_date = "2026-09-05"
 workers_dev = true
 
@@ -9,8 +9,9 @@ workers_dev = true
 region = "aws:ap-southeast-1"
 
 [triggers]
-# Watchdog only. In external-snapshot mode the Durable Object does not fetch Lazada.
-crons = ["*/5 0-15 * * *"]
+# Primary scheduler: 08:03, 08:13, ... 23:53 SGT (Cloudflare Cron uses UTC).
+# GitHub's own cron remains only as a delayed fallback while/if dispatch is unavailable.
+crons = ["3-53/10 0-15 * * *"]
 
 [durable_objects]
 bindings = [
@@ -23,10 +24,7 @@ new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
 EXTERNAL_SNAPSHOT_MODE = "true"
-# The GHA batch runs every 10 minutes; allow scheduling jitter before health is stale.
 EXTERNAL_HEALTH_STALE_SECONDS = "1200"
-# Retained for fallback/manual compatibility; no background source fetches occur
-# while EXTERNAL_SNAPSHOT_MODE=true.
 CHECK_INTERVAL_SECONDS = "900"
 RECOVERY_INTERVAL_SECONDS = "300"
 RECOVERY_SUCCESS_TARGET = "6"
@@ -37,3 +35,6 @@ TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
 ALERT_ON_FIRST_RUN = "false"
 ALLOW_EMPTY_TCG_SNAPSHOT = "false"
 DEBUG_NOTIFY_SUCCESS = "false"
+GITHUB_DISPATCH_REPOSITORY = "kingyx3/alert"
+GITHUB_DISPATCH_WORKFLOW = "lazada-playwright-probe.yml"
+GITHUB_DISPATCH_REF = "main"
