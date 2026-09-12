@@ -87,7 +87,7 @@ test("external snapshots are accepted once per GHA batch", async () => {
   const secondBatch = await monitor.ingestSnapshot({
     batchId: "run-2",
     runnerSlot: "3",
-    checkedAt: new Date().toISOString(),
+    checkedAt: new Date(Date.now() + 10).toISOString(),
     products: [product()],
   });
   assert.equal(secondBatch.ok, true);
@@ -104,6 +104,44 @@ test("external snapshots are accepted once per GHA batch", async () => {
   assert.equal(meta.recoveryMode, false);
 });
 
+test("older overlapping minute snapshots cannot roll inventory backward", async () => {
+  const state = makeState();
+  const monitor = new LazadaMonitor(state, {
+    EXTERNAL_SNAPSHOT_MODE: "true",
+    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    MISSING_CONFIRMATIONS: "2",
+    ALERT_ON_FIRST_RUN: "false",
+  });
+
+  const newerCheckedAt = new Date(Date.now() - 1000).toISOString();
+  const olderCheckedAt = new Date(Date.now() - 61000).toISOString();
+
+  const newer = await monitor.ingestSnapshot({
+    batchId: "cf-200",
+    runnerSlot: "1",
+    checkedAt: newerCheckedAt,
+    products: [product({ inStock: false })],
+  });
+  assert.equal(newer.ok, true);
+  assert.equal(newer.superseded, undefined);
+
+  const older = await monitor.ingestSnapshot({
+    batchId: "cf-199",
+    runnerSlot: "1",
+    checkedAt: olderCheckedAt,
+    products: [product({ inStock: true })],
+  });
+  assert.equal(older.ok, true);
+  assert.equal(older.superseded, true);
+  assert.equal(older.acceptedBatchId, "cf-200");
+
+  const inventory = state.values.get("inventory");
+  assert.equal(inventory["skuId:1001"].available, false);
+  const meta = state.values.get("meta");
+  assert.equal(meta.lastIngestBatchId, "cf-200");
+  assert.equal(meta.lastSuccessAt, newerCheckedAt);
+});
+
 test("Cloudflare dispatcher safely skips when no GitHub token is configured", async () => {
   const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 0, 3, 0));
   assert.deepEqual(result, {
@@ -113,7 +151,7 @@ test("Cloudflare dispatcher safely skips when no GitHub token is configured", as
   });
 });
 
-test("Cloudflare dispatcher sends workflow_dispatch with a stable slot key", async () => {
+test("Cloudflare dispatcher sends workflow_dispatch with a stable minute key", async () => {
   const originalFetch = globalThis.fetch;
   let request = null;
   globalThis.fetch = async (url, init) => {
@@ -132,7 +170,7 @@ test("Cloudflare dispatcher sends workflow_dispatch with a stable slot key", asy
 
     assert.equal(result.ok, true);
     assert.equal(result.status, 204);
-    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 600000)}`);
+    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 60000)}`);
     assert.equal(
       request.url,
       "https://api.github.com/repos/kingyx3/alert/actions/workflows/lazada-playwright-probe.yml/dispatches",
