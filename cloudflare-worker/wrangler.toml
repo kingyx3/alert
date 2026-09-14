@@ -9,9 +9,9 @@ workers_dev = true
 region = "aws:ap-southeast-1"
 
 [triggers]
-# Primary scheduler: every minute from 08:00 through 23:59 SGT.
+# Primary scheduler: explicitly every minute from 08:00 through 23:59 SGT.
 # Cloudflare Cron uses UTC, so 00:00-15:59 UTC maps to 08:00-23:59 SGT.
-crons = ["* 0-15 * * *"]
+crons = ["*/1 0-15 * * *"]
 
 [durable_objects]
 bindings = [
