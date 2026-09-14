@@ -151,7 +151,8 @@ jobs:
         id: probe
         continue-on-error: true
         env:
-          LAZADA_URL: ${{ vars.LAZADA_URL }}
+          SCRAPING_URL: ${{ vars.SCRAPING_URL }}
+          SCRAPING_URL_2: ${{ vars.SCRAPING_URL_2 }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
           INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
           BATCH_ID: ${{ needs.gate.outputs.batch_id }}
@@ -242,7 +243,8 @@ jobs:
         id: rescue_probe
         continue-on-error: true
         env:
-          LAZADA_URL: ${{ vars.LAZADA_URL }}
+          SCRAPING_URL: ${{ vars.SCRAPING_URL }}
+          SCRAPING_URL_2: ${{ vars.SCRAPING_URL_2 }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
           INGEST_ENABLED: ${{ github.event_name == 'pull_request' && 'false' || 'true' }}
           BATCH_ID: ${{ needs.gate.outputs.batch_id }}
