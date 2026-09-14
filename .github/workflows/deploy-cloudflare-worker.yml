@@ -58,12 +58,14 @@ jobs:
           workingDirectory: cloudflare-worker
           wranglerVersion: '4.129.0'
           secrets: |
-            LAZADA_URL
+            SCRAPING_URL
+            SCRAPING_URL_2
             TELEGRAM_BOT_TOKEN
             TELEGRAM_CHANNEL_ID
             DEBUG_TOKEN
         env:
-          LAZADA_URL: ${{ vars.LAZADA_URL }}
+          SCRAPING_URL: ${{ vars.SCRAPING_URL }}
+          SCRAPING_URL_2: ${{ vars.SCRAPING_URL_2 }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHANNEL_ID: ${{ vars.TELEGRAM_CHANNEL_ID }}
           DEBUG_TOKEN: ${{ secrets.DEBUG_TOKEN }}
