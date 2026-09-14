@@ -13,7 +13,10 @@ const BLOCK_MARKERS = [
   "are you a robot",
 ];
 
-const lazadaUrl = process.env.LAZADA_URL;
+const scrapingSources = [
+  { name: "SCRAPING_URL", url: String(process.env.SCRAPING_URL || "").trim() },
+  { name: "SCRAPING_URL_2", url: String(process.env.SCRAPING_URL_2 || "").trim() },
+];
 const monitorUrl = String(process.env.MONITOR_URL || "").replace(/\/$/, "");
 const debugToken = process.env.DEBUG_TOKEN || "";
 const ingestEnabled = String(process.env.INGEST_ENABLED || "false").toLowerCase() === "true";
@@ -25,7 +28,8 @@ const tcgKeywords = String(process.env.TCG_KEYWORDS || "pokemon,pokémon,tcg,tra
   .map((value) => value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim())
   .filter(Boolean);
 
-if (!lazadaUrl) throw new Error("LAZADA_URL is not configured");
+const missingSources = scrapingSources.filter((source) => !source.url).map((source) => source.name);
+if (missingSources.length) throw new Error(`${missingSources.join("/")} are not configured`);
 if (ingestEnabled && (!monitorUrl || !debugToken)) {
   throw new Error("MONITOR_URL/DEBUG_TOKEN are required when INGEST_ENABLED=true");
 }
@@ -84,6 +88,38 @@ function normalizeProduct(item) {
     sellerName: item.sellerName || null,
     sellerId: item.sellerId || null,
   };
+}
+
+function productKey(product) {
+  for (const field of ["skuId", "sku", "url", "name"]) {
+    const value = product[field];
+    if (value !== null && value !== undefined && value !== "") return `${field}:${value}`;
+  }
+  return null;
+}
+
+function mergeProducts(productGroups) {
+  const merged = new Map();
+  for (const products of productGroups) {
+    for (const product of products) {
+      const key = productKey(product);
+      if (!key) continue;
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, product);
+        continue;
+      }
+
+      let inStock = null;
+      if (existing.inStock === true || product.inStock === true) inStock = true;
+      else if (existing.inStock === false || product.inStock === false) inStock = false;
+
+      // Keep the first source's canonical fields, but treat an in-stock signal
+      // from either endpoint as sufficient evidence that the SKU is available.
+      merged.set(key, { ...product, ...existing, inStock });
+    }
+  }
+  return [...merged.values()];
 }
 
 function parseJsonObjectAt(text, start) {
@@ -209,17 +245,131 @@ async function appendSummary(diagnostics) {
     "",
     `- Slot: ${runnerSlot}`,
     `- Result: **${diagnostics.result}**`,
-    `- HTTP status: ${diagnostics.httpStatus ?? "unknown"}`,
-    `- Block marker: ${diagnostics.blockMarker || "none"}`,
+    `- Sources: ${diagnostics.sources.length}`,
     `- Products: ${diagnostics.productCandidates}`,
-    `- TCG products: ${diagnostics.tcgCandidates}`,
+    `- TCG products after de-duplication: ${diagnostics.tcgCandidates}`,
     `- Source ready: ${diagnostics.sourceReadyMs ?? "unknown"} ms`,
     `- Ingest round trip: ${diagnostics.ingestRoundTripMs ?? "n/a"} ms`,
     `- Ingest enabled: ${ingestEnabled}`,
     `- Ingest OK: ${diagnostics.ingestOk ?? false}`,
     `- Restocked: ${diagnostics.ingestRestocked ?? 0}`,
+    "",
+    "### Sources",
   ];
+  for (const source of diagnostics.sources) {
+    lines.push(
+      `- ${source.name}: ${source.result}; HTTP ${source.httpStatus ?? "unknown"}; ` +
+        `${source.productCandidates} products / ${source.tcgCandidates} TCG; ` +
+        `block=${source.blockMarker || "none"}`,
+    );
+  }
   await writeFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`, { flag: "a" });
+}
+
+async function probeSource(context, source, sourceIndex) {
+  const page = await context.newPage();
+  const navigationStartedAt = Date.now();
+  let response = null;
+  let sourceBody = "";
+  let title = "";
+  let html = "";
+  let bodyText = "";
+
+  try {
+    response = await page.goto(source.url, {
+      // The inventory payload is in the main response. Resolve as soon as the
+      // response commits so both endpoints can be combined with minimal latency.
+      waitUntil: "commit",
+      timeout: 45_000,
+    });
+
+    const httpStatus = response?.status() ?? null;
+    const finalUrl = page.url();
+    sourceBody = await response?.text().catch(() => "") || "";
+    const sourceReadyAt = Date.now();
+    let lower = `${finalUrl}\n${sourceBody}`.toLowerCase();
+    let blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
+    let parsed = parseProducts(sourceBody);
+
+    if (blockMarker || !parsed.payloadFound || parsed.products.length === 0) {
+      await page.waitForLoadState("domcontentloaded", { timeout: 8_000 }).catch(() => {});
+      [title, html, bodyText] = await Promise.all([
+        page.title().catch(() => ""),
+        page.content().catch(() => ""),
+        page.locator("body").innerText({ timeout: 5_000 }).catch(() => ""),
+      ]);
+      lower = `${finalUrl}\n${title}\n${bodyText}\n${html}`.toLowerCase();
+      blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
+      if (!parsed.payloadFound || parsed.products.length === 0) {
+        parsed = parseProducts(sourceBody || bodyText || html);
+      }
+    }
+
+    let result = "success";
+    if (blockMarker || [403, 429].includes(httpStatus)) result = "blocked";
+    else if (httpStatus !== null && (httpStatus < 200 || httpStatus >= 300)) result = "http-error";
+    else if (!parsed.payloadFound || parsed.products.length === 0) result = "unparseable";
+
+    if (result !== "success") {
+      if (!html) html = await page.content().catch(() => sourceBody);
+      await Promise.all([
+        writeFile(path.join(artifactsDir, `source-${sourceIndex + 1}-page.html`), html || sourceBody),
+        page.screenshot({
+          path: path.join(artifactsDir, `source-${sourceIndex + 1}-screenshot.png`),
+          fullPage: true,
+        }).catch(() => {}),
+      ]);
+    }
+
+    const diagnosticBody = bodyText || sourceBody;
+    const diagnosticHtml = html || sourceBody;
+    return {
+      name: source.name,
+      requestedUrl: source.url,
+      result,
+      httpStatus,
+      finalUrl,
+      title,
+      blockMarker,
+      sourceReadyMs: sourceReadyAt - navigationStartedAt,
+      htmlBytes: Buffer.byteLength(diagnosticHtml),
+      bodyPreview: diagnosticBody.replace(/\s+/g, " ").slice(0, 700),
+      payloadFound: parsed.payloadFound,
+      productCandidates: parsed.products.length,
+      tcgCandidates: parsed.tcgProducts.length,
+      tcgProducts: parsed.tcgProducts,
+    };
+  } catch (error) {
+    const finalUrl = page.url();
+    html = await page.content().catch(() => "");
+    bodyText = await page.locator("body").innerText({ timeout: 3_000 }).catch(() => "");
+    await Promise.all([
+      writeFile(path.join(artifactsDir, `source-${sourceIndex + 1}-page.html`), html || String(error)),
+      page.screenshot({
+        path: path.join(artifactsDir, `source-${sourceIndex + 1}-screenshot.png`),
+        fullPage: true,
+      }).catch(() => {}),
+    ]);
+    return {
+      name: source.name,
+      requestedUrl: source.url,
+      result: "navigation-error",
+      httpStatus: response?.status() ?? null,
+      finalUrl,
+      title: await page.title().catch(() => ""),
+      blockMarker: null,
+      sourceReadyMs: Date.now() - navigationStartedAt,
+      htmlBytes: Buffer.byteLength(html || ""),
+      bodyPreview: (bodyText || String(error)).replace(/\s+/g, " ").slice(0, 700),
+      payloadFound: false,
+      productCandidates: 0,
+      tcgCandidates: 0,
+      tcgProducts: [],
+      error: String(error?.message || error),
+    };
+  } finally {
+    await page.close().catch(() => {});
+  }
 }
 
 await mkdir(artifactsDir, { recursive: true });
@@ -236,55 +386,26 @@ try {
     timezoneId: "Asia/Singapore",
     viewport: { width: 1440, height: 1200 },
   });
-  const page = await context.newPage();
-  const navigationStartedAt = Date.now();
-  const response = await page.goto(lazadaUrl, {
-    // The inventory payload is in the main response. Resolve as soon as the
-    // response commits instead of waiting for DOMContentLoaded so stock can be
-    // submitted to the Telegram-sending Worker at the earliest safe moment.
-    waitUntil: "commit",
-    timeout: 45_000,
-  });
 
-  // The Lazada AJAX endpoint normally returns the inventory JSON as the main
-  // response. Read and parse it immediately. DOM loading, screenshots,
-  // artifacts, and other runners must never sit on the alert path.
-  const httpStatus = response?.status() ?? null;
-  const finalUrl = page.url();
-  const sourceBody = await response?.text().catch(() => "") || "";
-  const sourceReadyAt = Date.now();
-  const checkedAt = new Date(sourceReadyAt).toISOString();
-  let title = "";
-  let html = "";
-  let bodyText = "";
-  let lower = `${finalUrl}\n${sourceBody}`.toLowerCase();
-  let blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
-  let parsed = parseProducts(sourceBody);
-
-  // Only pay the DOM-inspection cost when the committed response is blocked or
-  // not directly parseable. A clean inventory response reaches /snapshot first.
-  if (blockMarker || !parsed.payloadFound || parsed.products.length === 0) {
-    await page.waitForLoadState("domcontentloaded", { timeout: 8_000 }).catch(() => {});
-    [title, html, bodyText] = await Promise.all([
-      page.title().catch(() => ""),
-      page.content().catch(() => ""),
-      page.locator("body").innerText({ timeout: 5_000 }).catch(() => ""),
-    ]);
-    lower = `${finalUrl}\n${title}\n${bodyText}\n${html}`.toLowerCase();
-    blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
-    if (!parsed.payloadFound || parsed.products.length === 0) {
-      parsed = parseProducts(sourceBody || bodyText || html);
-    }
+  const batchStartedAt = Date.now();
+  const sourceResults = [];
+  for (const [sourceIndex, source] of scrapingSources.entries()) {
+    sourceResults.push(await probeSource(context, source, sourceIndex));
   }
 
+  const checkedAt = new Date().toISOString();
+  const products = mergeProducts(sourceResults.map((source) => source.tcgProducts));
+  const blockedSource = sourceResults.find((source) => source.result === "blocked");
+  const failedSource = sourceResults.find((source) => source.result !== "success");
+
   let result = "success";
-  if (blockMarker || [403, 429].includes(httpStatus)) {
+  if (blockedSource) {
     result = "blocked";
     exitCode = 2;
-  } else if (!parsed.payloadFound || parsed.products.length === 0) {
-    result = "unparseable";
+  } else if (failedSource) {
+    result = failedSource.result;
     exitCode = 3;
-  } else if (parsed.tcgProducts.length === 0) {
+  } else if (products.length === 0) {
     result = "no-tcg-products";
     exitCode = 4;
   }
@@ -297,48 +418,40 @@ try {
       batchId,
       runnerSlot,
       checkedAt,
-      httpStatus,
-      finalUrl,
-      products: parsed.tcgProducts,
+      httpStatus: sourceResults[0]?.httpStatus ?? null,
+      finalUrl: sourceResults[0]?.finalUrl || scrapingSources[0].url,
+      products,
     });
     ingestRoundTripMs = Date.now() - ingestStartedAt;
     if (!ingest.ok) exitCode = 5;
   }
 
-  const diagnosticBody = bodyText || sourceBody;
-  const diagnosticHtml = html || sourceBody;
   const diagnostics = {
     checkedAt,
     batchId,
     runnerSlot,
     result,
-    httpStatus,
-    finalUrl,
-    title,
-    blockMarker,
-    sourceReadyMs: sourceReadyAt - navigationStartedAt,
+    httpStatus: sourceResults[0]?.httpStatus ?? null,
+    finalUrl: sourceResults[0]?.finalUrl || scrapingSources[0].url,
+    title: sourceResults[0]?.title || "",
+    blockMarker: blockedSource?.blockMarker || null,
+    sourceReadyMs: Date.now() - batchStartedAt,
     ingestRoundTripMs,
-    htmlBytes: Buffer.byteLength(diagnosticHtml),
-    bodyPreview: diagnosticBody.replace(/\s+/g, " ").slice(0, 700),
-    payloadFound: parsed.payloadFound,
-    productCandidates: parsed.products.length,
-    tcgCandidates: parsed.tcgProducts.length,
+    htmlBytes: sourceResults.reduce((sum, source) => sum + Number(source.htmlBytes || 0), 0),
+    bodyPreview: failedSource?.bodyPreview || sourceResults[0]?.bodyPreview || "",
+    payloadFound: sourceResults.every((source) => source.payloadFound),
+    productCandidates: sourceResults.reduce((sum, source) => sum + source.productCandidates, 0),
+    tcgCandidates: products.length,
     ingestEnabled,
     ingestOk: ingest?.ok ?? false,
     ingestStatus: ingest?.status ?? null,
     ingestDuplicate: ingest?.body?.duplicate ?? null,
     ingestSuperseded: ingest?.body?.superseded ?? null,
     ingestRestocked: ingest?.body?.restocked ?? 0,
+    sources: sourceResults.map(({ tcgProducts, ...source }) => source),
   };
 
   await writeFile(path.join(artifactsDir, "probe.json"), `${JSON.stringify(diagnostics, null, 2)}\n`);
-  if (result !== "success") {
-    if (!html) html = await page.content().catch(() => sourceBody);
-    await Promise.all([
-      writeFile(path.join(artifactsDir, "page.html"), html || sourceBody),
-      page.screenshot({ path: path.join(artifactsDir, "screenshot.png"), fullPage: true }),
-    ]);
-  }
   await appendSummary(diagnostics);
   console.log(JSON.stringify(diagnostics, null, 2));
 } finally {
