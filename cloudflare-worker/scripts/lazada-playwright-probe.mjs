@@ -213,6 +213,8 @@ async function appendSummary(diagnostics) {
     `- Block marker: ${diagnostics.blockMarker || "none"}`,
     `- Products: ${diagnostics.productCandidates}`,
     `- TCG products: ${diagnostics.tcgCandidates}`,
+    `- Source ready: ${diagnostics.sourceReadyMs ?? "unknown"} ms`,
+    `- Ingest round trip: ${diagnostics.ingestRoundTripMs ?? "n/a"} ms`,
     `- Ingest enabled: ${ingestEnabled}`,
     `- Ingest OK: ${diagnostics.ingestOk ?? false}`,
     `- Restocked: ${diagnostics.ingestRestocked ?? 0}`,
@@ -235,18 +237,23 @@ try {
     viewport: { width: 1440, height: 1200 },
   });
   const page = await context.newPage();
+  const navigationStartedAt = Date.now();
   const response = await page.goto(lazadaUrl, {
-    waitUntil: "domcontentloaded",
+    // The inventory payload is in the main response. Resolve as soon as the
+    // response commits instead of waiting for DOMContentLoaded so stock can be
+    // submitted to the Telegram-sending Worker at the earliest safe moment.
+    waitUntil: "commit",
     timeout: 45_000,
   });
 
   // The Lazada AJAX endpoint normally returns the inventory JSON as the main
-  // response. Parse that response first and submit it immediately. DOM capture,
-  // screenshots, artifacts, and other runners must never sit on the alert path.
-  const checkedAt = new Date().toISOString();
+  // response. Read and parse it immediately. DOM loading, screenshots,
+  // artifacts, and other runners must never sit on the alert path.
   const httpStatus = response?.status() ?? null;
   const finalUrl = page.url();
   const sourceBody = await response?.text().catch(() => "") || "";
+  const sourceReadyAt = Date.now();
+  const checkedAt = new Date(sourceReadyAt).toISOString();
   let title = "";
   let html = "";
   let bodyText = "";
@@ -254,9 +261,10 @@ try {
   let blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
   let parsed = parseProducts(sourceBody);
 
-  // Only pay the DOM-inspection cost when the main response is blocked or is
-  // not directly parseable. A clean JSON response reaches /snapshot first.
+  // Only pay the DOM-inspection cost when the committed response is blocked or
+  // not directly parseable. A clean inventory response reaches /snapshot first.
   if (blockMarker || !parsed.payloadFound || parsed.products.length === 0) {
+    await page.waitForLoadState("domcontentloaded", { timeout: 8_000 }).catch(() => {});
     [title, html, bodyText] = await Promise.all([
       page.title().catch(() => ""),
       page.content().catch(() => ""),
@@ -282,7 +290,9 @@ try {
   }
 
   let ingest = null;
+  let ingestRoundTripMs = null;
   if (result === "success" && ingestEnabled) {
+    const ingestStartedAt = Date.now();
     ingest = await postSnapshot({
       batchId,
       runnerSlot,
@@ -291,6 +301,7 @@ try {
       finalUrl,
       products: parsed.tcgProducts,
     });
+    ingestRoundTripMs = Date.now() - ingestStartedAt;
     if (!ingest.ok) exitCode = 5;
   }
 
@@ -305,6 +316,8 @@ try {
     finalUrl,
     title,
     blockMarker,
+    sourceReadyMs: sourceReadyAt - navigationStartedAt,
+    ingestRoundTripMs,
     htmlBytes: Buffer.byteLength(diagnosticHtml),
     bodyPreview: diagnosticBody.replace(/\s+/g, " ").slice(0, 700),
     payloadFound: parsed.payloadFound,
