@@ -231,7 +231,7 @@ test("Cloudflare dispatcher safely skips when no GitHub token is configured", as
   });
 });
 
-test("Cloudflare dispatcher sends workflow_dispatch with a stable minute key", async () => {
+test("Cloudflare dispatcher sends workflow_dispatch with a stable 30-second key", async () => {
   const originalFetch = globalThis.fetch;
   let request = null;
   globalThis.fetch = async (url, init) => {
@@ -250,7 +250,7 @@ test("Cloudflare dispatcher sends workflow_dispatch with a stable minute key", a
 
     assert.equal(result.ok, true);
     assert.equal(result.status, 204);
-    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 60000)}`);
+    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 30000)}`);
     assert.equal(
       request.url,
       "https://api.github.com/repos/kingyx3/alert/actions/workflows/lazada-playwright-probe.yml/dispatches",
