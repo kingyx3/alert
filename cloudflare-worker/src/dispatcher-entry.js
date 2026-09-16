@@ -3,7 +3,7 @@ import ghaWorker, { LazadaMonitor as ExternalSnapshotMonitor } from "./gha-entry
 const DEFAULT_GITHUB_REPOSITORY = "kingyx3/alert";
 const DEFAULT_GITHUB_WORKFLOW = "lazada-playwright-probe.yml";
 const DEFAULT_GITHUB_REF = "main";
-const DISPATCH_BUCKET_MS = 60 * 1000;
+const DISPATCH_INTERVAL_MS = 30 * 1000;
 
 export class LazadaMonitor extends ExternalSnapshotMonitor {
   async ingestSnapshot(payload) {
@@ -76,7 +76,7 @@ export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
     return { ok: false, skipped: true, reason: "github_actions_token_missing" };
   }
 
-  const dispatchKey = `cf-${Math.floor(Number(scheduledTime || Date.now()) / DISPATCH_BUCKET_MS)}`;
+  const dispatchKey = `cf-${Math.floor(Number(scheduledTime || Date.now()) / DISPATCH_INTERVAL_MS)}`;
   const endpoint = `https://api.github.com/repos/${config.repository}/actions/workflows/${encodeURIComponent(config.workflow)}/dispatches`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -110,6 +110,17 @@ export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
   };
 }
 
+async function dispatchAndLog(env, scheduledTime, slot) {
+  try {
+    const result = await dispatchGithubWorkflow(env, scheduledTime);
+    console.log(`GitHub workflow ${slot} dispatch accepted`, result);
+    return result;
+  } catch (error) {
+    console.error(`GitHub workflow ${slot} dispatch failed`, String(error?.message || error));
+    return { ok: false, error: String(error?.message || error) };
+  }
+}
+
 export default {
   ...ghaWorker,
 
@@ -123,11 +134,13 @@ export default {
       return undefined;
     }
 
-    ctx.waitUntil(
-      dispatchGithubWorkflow(env, scheduledTime)
-        .then((result) => console.log("GitHub workflow dispatch accepted", result))
-        .catch((error) => console.error("GitHub workflow dispatch failed", String(error?.message || error))),
-    );
+    const immediateDispatch = dispatchAndLog(env, scheduledTime, "immediate");
+    const midpointDispatch = (async () => {
+      await scheduler.wait(DISPATCH_INTERVAL_MS);
+      return dispatchAndLog(env, scheduledTime + DISPATCH_INTERVAL_MS, "midpoint");
+    })();
+
+    await Promise.all([immediateDispatch, midpointDispatch]);
   },
 
   async fetch(request, env, ctx) {
@@ -137,7 +150,9 @@ export default {
       return jsonResponse({
         status: config.configured ? "ok" : "fallback",
         scheduler: "cloudflare-cron",
-        frequencySeconds: 60,
+        frequencySeconds: 30,
+        cronFrequencySeconds: 60,
+        midpointDispatchDelaySeconds: 30,
         githubDispatchConfigured: config.configured,
         repository: config.repository,
         workflow: config.workflow,
