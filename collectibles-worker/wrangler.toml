@@ -4,8 +4,7 @@ compatibility_date = "2026-09-07"
 workers_dev = true
 
 [triggers]
-# Lightweight scheduler. Each source has its own due time (3m-6h+) and failure backoff.
-crons = ["*/2 * * * *"]
+crons = []
 
 [durable_objects]
 bindings = [
