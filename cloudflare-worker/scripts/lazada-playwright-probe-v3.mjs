@@ -57,7 +57,8 @@ async function appendSummary(diagnostics) {
     `- Products: ${diagnostics.productCandidates}`,
     `- TCG products after de-duplication: ${diagnostics.tcgCandidates}`,
     `- Source ready: ${diagnostics.sourceReadyMs ?? "unknown"} ms`,
-    `- Ingest round trip: ${diagnostics.ingestRoundTripMs ?? "n/a"} ms`,
+    `- First clean ingest: ${diagnostics.firstCleanIngestMs ?? "n/a"} ms`,
+    `- Final ingest round trip: ${diagnostics.ingestRoundTripMs ?? "n/a"} ms`,
     `- Ingest enabled: ${ingestEnabled}`,
     `- Ingest OK: ${diagnostics.ingestOk ?? false}`,
     `- Restocked: ${diagnostics.ingestRestocked ?? 0}`,
@@ -68,7 +69,7 @@ async function appendSummary(diagnostics) {
     lines.push(
       `- ${source.name}: ${source.result}; HTTP ${source.httpStatus ?? "unknown"}; ` +
         `${source.productCandidates} products / ${source.tcgCandidates} TCG; ` +
-        `block=${source.blockMarker || "none"}`,
+        `block=${source.blockMarker || "none"}; fastIngest=${source.fastIngestOk ?? "n/a"}`,
     );
   }
   await writeFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`, { flag: "a" });
@@ -194,10 +195,48 @@ try {
   });
 
   const batchStartedAt = Date.now();
-  const sourceResults = [];
-  for (const [sourceIndex, source] of scrapingSources.entries()) {
-    sourceResults.push(await probeSource(context, source, sourceIndex));
-  }
+  let firstCleanIngestMs = null;
+
+  // Probe every source concurrently. As soon as any source produces a clean TCG
+  // payload, submit it immediately as a partial snapshot. Partial snapshots may
+  // discover stock/restocks but never mark unseen SKUs missing, so Telegram can
+  // be sent on the fast path without waiting for slower sources.
+  const sourceResults = await Promise.all(scrapingSources.map(async (source, sourceIndex) => {
+    const sourceResult = await probeSource(context, source, sourceIndex);
+    sourceResult.fastIngestOk = null;
+    sourceResult.fastIngestStatus = null;
+    sourceResult.fastIngestRestocked = 0;
+    sourceResult.fastIngestRoundTripMs = null;
+
+    if (
+      ingestEnabled &&
+      sourceResult.result === "success" &&
+      sourceResult.tcgProducts.length > 0
+    ) {
+      const fastCheckedAt = new Date().toISOString();
+      const ingestStartedAt = Date.now();
+      const fastIngest = await postSnapshot({
+        batchId: `${batchId}:source-${sourceIndex + 1}`,
+        runnerSlot,
+        checkedAt: fastCheckedAt,
+        httpStatus: sourceResult.httpStatus,
+        finalUrl: sourceResult.finalUrl || source.url,
+        products: sourceResult.tcgProducts,
+        complete: false,
+      });
+      sourceResult.fastIngestRoundTripMs = Date.now() - ingestStartedAt;
+      sourceResult.fastIngestOk = fastIngest.ok;
+      sourceResult.fastIngestStatus = fastIngest.status;
+      sourceResult.fastIngestRestocked = fastIngest.body?.restocked ?? 0;
+      sourceResult.fastIngestDuplicate = fastIngest.body?.duplicate ?? null;
+      sourceResult.fastIngestSuperseded = fastIngest.body?.superseded ?? null;
+      if (firstCleanIngestMs === null && fastIngest.ok) {
+        firstCleanIngestMs = Date.now() - batchStartedAt;
+      }
+    }
+
+    return sourceResult;
+  }));
 
   const checkedAt = new Date().toISOString();
   const products = mergeProducts(sourceResults.map((source) => source.tcgProducts));
@@ -216,6 +255,9 @@ try {
     exitCode = 4;
   }
 
+  // The merged complete snapshot runs after all fast-path source submissions. It
+  // reconciles missing SKUs and provides the canonical batch result, but it is
+  // intentionally not on the critical path for Telegram notification.
   let ingest = null;
   let ingestRoundTripMs = null;
   if (result === "success" && ingestEnabled) {
@@ -227,6 +269,7 @@ try {
       httpStatus: sourceResults[0]?.httpStatus ?? null,
       finalUrl: sourceResults[0]?.finalUrl || scrapingSources[0].url,
       products,
+      complete: true,
     });
     ingestRoundTripMs = Date.now() - ingestStartedAt;
     if (!ingest.ok) exitCode = 5;
@@ -242,6 +285,7 @@ try {
     title: sourceResults[0]?.title || "",
     blockMarker: blockedSource?.blockMarker || null,
     sourceReadyMs: Date.now() - batchStartedAt,
+    firstCleanIngestMs,
     ingestRoundTripMs,
     htmlBytes: sourceResults.reduce((sum, source) => sum + Number(source.htmlBytes || 0), 0),
     bodyPreview: failedSource?.bodyPreview || sourceResults[0]?.bodyPreview || "",
@@ -249,11 +293,14 @@ try {
     productCandidates: sourceResults.reduce((sum, source) => sum + source.productCandidates, 0),
     tcgCandidates: products.length,
     ingestEnabled,
-    ingestOk: ingest?.ok ?? false,
+    ingestOk: ingest?.ok ?? sourceResults.some((source) => source.fastIngestOk === true),
     ingestStatus: ingest?.status ?? null,
     ingestDuplicate: ingest?.body?.duplicate ?? null,
     ingestSuperseded: ingest?.body?.superseded ?? null,
-    ingestRestocked: ingest?.body?.restocked ?? 0,
+    ingestRestocked: Math.max(
+      ingest?.body?.restocked ?? 0,
+      ...sourceResults.map((source) => Number(source.fastIngestRestocked || 0)),
+    ),
     sources: sourceResults.map(({ tcgProducts, ...source }) => source),
   };
 
