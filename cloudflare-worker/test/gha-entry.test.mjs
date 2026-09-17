@@ -104,6 +104,46 @@ test("external snapshots are accepted once per GHA batch", async () => {
   assert.equal(meta.recoveryMode, false);
 });
 
+test("partial fast-path snapshots never mark unseen SKUs missing", async () => {
+  const state = makeState();
+  const monitor = new LazadaMonitor(state, {
+    EXTERNAL_SNAPSHOT_MODE: "true",
+    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    MISSING_CONFIRMATIONS: "2",
+    ALERT_ON_FIRST_RUN: "false",
+  });
+
+  await monitor.ingestSnapshot({
+    batchId: "baseline",
+    runnerSlot: "1",
+    checkedAt: new Date(Date.now() - 2000).toISOString(),
+    products: [
+      product(),
+      product({
+        name: "Pokémon TCG Second Product",
+        skuId: "1002",
+        sku: "TEST_SKU_2",
+        url: "https://www.lazada.sg/products/test-2.html",
+      }),
+    ],
+    complete: true,
+  });
+
+  const partial = await monitor.ingestSnapshot({
+    batchId: "fast-source-1",
+    runnerSlot: "1",
+    checkedAt: new Date(Date.now() - 1000).toISOString(),
+    products: [product()],
+    complete: false,
+  });
+
+  assert.equal(partial.ok, true);
+  assert.equal(partial.complete, false);
+  const inventory = state.values.get("inventory");
+  assert.equal(inventory["skuId:1002"].missingStreak, 0);
+  assert.equal(inventory["skuId:1002"].available, false);
+});
+
 test("older overlapping dispatch snapshots cannot roll inventory backward", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
@@ -142,7 +182,7 @@ test("older overlapping dispatch snapshots cannot roll inventory backward", asyn
   assert.equal(meta.lastSuccessAt, newerCheckedAt);
 });
 
-test("first clean concurrent runner sends exactly one Telegram restock alert", async () => {
+test("first clean concurrent runner sends exactly one Telegram restock alert before bookkeeping", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
@@ -193,15 +233,22 @@ test("first clean concurrent runner sends exactly one Telegram restock alert", a
       runnerSlot: "1",
       checkedAt,
       products: [product({ inStock: true })],
+      complete: false,
     });
 
     await telegramStarted;
+    assert.equal(
+      state.values.get("meta").lastIngestBatchId,
+      "cf-initial",
+      "Telegram must start before the restock batch is persisted",
+    );
 
     const secondRunner = monitor.ingestSnapshot({
       batchId: "cf-restock",
       runnerSlot: "2",
       checkedAt,
       products: [product({ inStock: true })],
+      complete: false,
     });
 
     await new Promise((resolve) => setImmediate(resolve));
