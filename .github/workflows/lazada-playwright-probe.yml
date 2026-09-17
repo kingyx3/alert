@@ -33,7 +33,7 @@ on:
   schedule:
     # Delayed fallback only. Cloudflare fans out the primary batches every 10 seconds.
     # GitHub's minimum schedule interval is 5 minutes, so this only fills gaps.
-    - cron: '*/5 8-23 * * *'
+    - cron: '*/5 8-19 * * *'
       timezone: 'Asia/Singapore'
 
 permissions:
@@ -66,7 +66,17 @@ jobs:
           fi
           should_run=true
 
-          if [[ "${EVENT_NAME}" == "schedule" ]]; then
+          # Production ingestion/alerts are strictly limited to 08:00-19:59 SGT.
+          # Pull requests remain testable because their ingestion is disabled.
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            sgt_hour="$(TZ=Asia/Singapore date +%H)"
+            if (( 10#${sgt_hour} < 8 || 10#${sgt_hour} >= 20 )); then
+              should_run=false
+              echo "Outside 08:00-20:00 SGT alert window; skipping Lazada probes."
+            fi
+          fi
+
+          if [[ "${should_run}" == "true" && "${EVENT_NAME}" == "schedule" ]]; then
             body="$(curl --silent --show-error --max-time 10 "${MONITOR_URL}/healthz" || true)"
             echo "Fallback health check: ${body}"
             if HEALTH_JSON="${body}" python - <<'PY'
