@@ -10,7 +10,7 @@ region = "aws:ap-southeast-1"
 
 [triggers]
 # Cloudflare Cron is minute-granularity. Each tick dispatches immediately and the
-# Worker dispatches again 30 seconds later for an effective 30-second cadence.
+# Worker dispatches five more times at 10-second offsets for a 10-second cadence.
 # Cloudflare Cron uses UTC, so 00:00-15:59 UTC maps to 08:00-23:59 SGT.
 crons = ["*/1 0-15 * * *"]
 
@@ -25,9 +25,9 @@ new_sqlite_classes = ["LazadaMonitor"]
 
 [vars]
 EXTERNAL_SNAPSHOT_MODE = "true"
-# 30-second primary cadence; five minutes without a clean accepted snapshot is degraded.
+# 10-second primary cadence; five minutes without a clean accepted snapshot is degraded.
 EXTERNAL_HEALTH_STALE_SECONDS = "300"
-CHECK_INTERVAL_SECONDS = "30"
+CHECK_INTERVAL_SECONDS = "10"
 RECOVERY_INTERVAL_SECONDS = "300"
 RECOVERY_SUCCESS_TARGET = "6"
 BLOCK_BACKOFF_SECONDS = "1800"
