@@ -8,6 +8,111 @@ const DISPATCHES_PER_CRON = 60 * 1000 / DISPATCH_INTERVAL_MS;
 const DISPATCH_CLAIMS_STORAGE_KEY = "githubDispatchClaims";
 const DISPATCH_CLAIM_TTL_MS = 5 * 60 * 1000;
 
+function normalizeText(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function keywords(env) {
+  return String(env.TCG_KEYWORDS || "pokemon,pokémon,tcg,trading card")
+    .split(",")
+    .map((value) => normalizeText(value.trim()))
+    .filter(Boolean);
+}
+
+function asBool(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function productKey(product) {
+  for (const field of ["skuId", "sku", "url", "name"]) {
+    const value = product?.[field];
+    if (value !== null && value !== undefined && value !== "") return `${field}:${value}`;
+  }
+  return null;
+}
+
+function availableTcgProducts(payload, env) {
+  const wantedKeywords = keywords(env);
+  return (Array.isArray(payload?.products) ? payload.products : [])
+    .filter((product) => product && typeof product === "object" && product.inStock === true)
+    .filter((product) => {
+      const name = String(product.name || "").trim();
+      if (!name || !productKey(product)) return false;
+      const haystack = normalizeText(name);
+      return wantedKeywords.some((keyword) => haystack.includes(keyword));
+    });
+}
+
+function alertBatchIdFor(batchId) {
+  return String(batchId || "").replace(/:source-\d+$/, "");
+}
+
+function formatPrice(product) {
+  if (product?.priceShow) return String(product.priceShow);
+  const price = Number(product?.price);
+  if (Number.isFinite(price)) return `$${price.toFixed(2)}`;
+  return "Price unavailable";
+}
+
+async function sendPersistentStockTelegram(env, products, checkedAt) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHANNEL_ID) {
+    throw new Error("TELEGRAM_BOT_TOKEN/TELEGRAM_CHANNEL_ID Worker secrets are not configured");
+  }
+
+  const lines = [
+    "🚨 Lazada Pokémon TCG in stock",
+    `${products.length} SKU${products.length === 1 ? "" : "s"} currently available`,
+    `Checked: ${checkedAt}`,
+    "",
+  ];
+
+  for (const [index, product] of products.entries()) {
+    lines.push(`${index + 1}. ${String(product.name || "").trim()}`);
+    lines.push(`   ${formatPrice(product)}`);
+    if (product.skuId || product.sku) lines.push(`   SKU: ${product.skuId || product.sku}`);
+    if (product.url) lines.push(`   ${product.url}`);
+    lines.push("");
+  }
+
+  const chunks = [];
+  let current = "";
+  for (const line of lines) {
+    const next = `${current}${line}\n`;
+    if (next.length > 3900 && current) {
+      chunks.push(current.trimEnd());
+      current = `${line}\n`;
+    } else {
+      current = next;
+    }
+  }
+  if (current.trim()) chunks.push(current.trimEnd());
+
+  const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  for (const text of chunks) {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: env.TELEGRAM_CHANNEL_ID,
+        text,
+        disable_web_page_preview: true,
+      }),
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw new Error(`Telegram send failed HTTP ${response.status}: ${responseText.slice(0, 250)}`);
+    }
+  }
+}
+
 export class LazadaMonitor extends ExternalSnapshotMonitor {
   async ingestSnapshot(payload) {
     // Serialize snapshot decisions inside this Durable Object instance. The first
@@ -22,11 +127,13 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
     await previousIngest;
     try {
       const batchId = String(payload?.batchId || "").trim();
+      const alertBatchId = alertBatchIdFor(batchId);
       const checkedAt = String(payload?.checkedAt || "").trim();
       const checkedAtMs = Date.parse(checkedAt);
+      let loaded = null;
 
       if (batchId && Number.isFinite(checkedAtMs)) {
-        const loaded = await this.loadState();
+        loaded = await this.loadState();
         const lastSuccessMs = loaded.meta.lastSuccessAt ? Date.parse(loaded.meta.lastSuccessAt) : 0;
         if (
           loaded.meta.lastIngestBatchId &&
@@ -36,6 +143,7 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
         ) {
           this.log(loaded.meta, "external.snapshot.superseded", {
             batchId,
+            alertBatchId,
             checkedAt,
             acceptedBatchId: loaded.meta.lastIngestBatchId,
             lastSuccessAt: loaded.meta.lastSuccessAt,
@@ -50,7 +158,73 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
         }
       }
 
-      return await super.ingestSnapshot(payload);
+      if (!loaded) loaded = await this.loadState();
+      const availableProducts = availableTcgProducts(payload, this.env);
+      const initialized = Boolean(loaded.meta.initialized);
+      const alertAlreadySent = Boolean(alertBatchId) && loaded.meta.lastAlertBatchId === alertBatchId;
+      const transitionExpected = availableProducts.some((product) => {
+        const key = productKey(product);
+        const previous = key ? loaded.inventory[key] : null;
+        return !previous || previous.available !== true;
+      });
+
+      // Transition/first-run alerts are still handled by the base ingestion path.
+      // If everything shown in stock was already known to be available, this is a
+      // persistent-stock check: notify immediately once for this 10-second root
+      // batch, before normal snapshot bookkeeping. Source/runners share the same
+      // root alertBatchId, so they cannot multiply-notify the same check.
+      if (
+        alertBatchId &&
+        availableProducts.length > 0 &&
+        initialized &&
+        !transitionExpected &&
+        !alertAlreadySent
+      ) {
+        try {
+          await sendPersistentStockTelegram(this.env, availableProducts, checkedAt);
+        } catch (error) {
+          this.log(loaded.meta, "external.snapshot.telegram_error", {
+            batchId,
+            alertBatchId,
+            persistentStock: true,
+            message: String(error?.message || error),
+          });
+          return { ok: false, status: 502, error: "telegram_send_failed" };
+        }
+
+        loaded.meta.lastAlertBatchId = alertBatchId;
+        loaded.meta.lastAlertAt = checkedAt;
+        this.log(loaded.meta, "external.snapshot.stock_still_available_alert", {
+          batchId,
+          alertBatchId,
+          products: availableProducts.length,
+        });
+        await this.persist(loaded.inventory, loaded.meta);
+      }
+
+      const result = await super.ingestSnapshot(payload);
+
+      // The base path sends the first-run/restock Telegram. Record the shared root
+      // batch only after a successful ingest so later sources/runners in the same
+      // 10-second check do not send another notification.
+      const transitionAlertExpected =
+        alertBatchId &&
+        availableProducts.length > 0 &&
+        !alertAlreadySent &&
+        (
+          (initialized && transitionExpected) ||
+          (!initialized && asBool(this.env.ALERT_ON_FIRST_RUN, false))
+        );
+
+      if (result?.ok === true && !result?.duplicate && !result?.superseded && transitionAlertExpected) {
+        const fresh = await this.loadState();
+        if (fresh.meta.lastAlertBatchId !== alertBatchId) {
+          fresh.meta.lastAlertBatchId = alertBatchId;
+          await this.persist(fresh.inventory, fresh.meta);
+        }
+      }
+
+      return result;
     } finally {
       releaseIngest();
     }
