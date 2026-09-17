@@ -104,7 +104,7 @@ test("external snapshots are accepted once per GHA batch", async () => {
   assert.equal(meta.recoveryMode, false);
 });
 
-test("older overlapping minute snapshots cannot roll inventory backward", async () => {
+test("older overlapping dispatch snapshots cannot roll inventory backward", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
@@ -231,7 +231,7 @@ test("Cloudflare dispatcher safely skips when no GitHub token is configured", as
   });
 });
 
-test("Cloudflare dispatcher sends workflow_dispatch with a stable 30-second key", async () => {
+test("Cloudflare dispatcher sends workflow_dispatch with a stable 10-second key", async () => {
   const originalFetch = globalThis.fetch;
   let request = null;
   globalThis.fetch = async (url, init) => {
@@ -250,7 +250,7 @@ test("Cloudflare dispatcher sends workflow_dispatch with a stable 30-second key"
 
     assert.equal(result.ok, true);
     assert.equal(result.status, 204);
-    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 30000)}`);
+    assert.equal(result.dispatchKey, `cf-${Math.floor(scheduledTime / 10000)}`);
     assert.equal(
       request.url,
       "https://api.github.com/repos/kingyx3/alert/actions/workflows/lazada-playwright-probe.yml/dispatches",
