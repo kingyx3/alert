@@ -18,6 +18,9 @@ on:
   pull_request:
     paths:
       - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
+      - 'cloudflare-worker/scripts/lazada-playwright-probe-v3.mjs'
+      - 'cloudflare-worker/scripts/lazada-probe-config.mjs'
+      - 'cloudflare-worker/scripts/lazada-product-parser.mjs'
       - 'cloudflare-worker/src/gha-entry.js'
       - 'cloudflare-worker/src/dispatcher-entry.js'
       - 'cloudflare-worker/wrangler.toml'
@@ -307,8 +310,9 @@ jobs:
           def cloudflare_slot(value):
               if not value.startswith('cf-'):
                   return None
+              root = value[3:].split(':', 1)[0]
               try:
-                  return int(value[3:])
+                  return int(root)
               except ValueError:
                   return None
 
