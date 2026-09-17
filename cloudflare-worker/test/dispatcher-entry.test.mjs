@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { LazadaMonitor } from "../src/dispatcher-entry.js";
+import { LazadaMonitor, dispatchGithubWorkflow } from "../src/dispatcher-entry.js";
 
 function makeState() {
   const values = new Map();
@@ -75,6 +75,39 @@ test("concurrent claims for the same dispatch key serialize to one winner", asyn
 
   assert.equal(results.filter((result) => result.claimed).length, 1);
   assert.equal(results.filter((result) => !result.claimed).length, 2);
+});
+
+test("Cloudflare dispatcher never calls GitHub outside 08:00-20:00 SGT", async () => {
+  const originalFetch = globalThis.fetch;
+  let githubCalls = 0;
+  globalThis.fetch = async () => {
+    githubCalls += 1;
+    return new Response(null, { status: 204 });
+  };
+
+  const env = {
+    GITHUB_ACTIONS_TOKEN: "test-token",
+    GITHUB_DISPATCH_REPOSITORY: "kingyx3/alert",
+    GITHUB_DISPATCH_WORKFLOW: "lazada-playwright-probe.yml",
+    GITHUB_DISPATCH_REF: "main",
+  };
+
+  try {
+    const beforeOpen = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T07:59:59+08:00"));
+    const atClose = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T20:00:00+08:00"));
+    assert.equal(beforeOpen.skipped, true);
+    assert.equal(beforeOpen.reason, "outside_08_20_sgt_window");
+    assert.equal(atClose.skipped, true);
+    assert.equal(atClose.reason, "outside_08_20_sgt_window");
+    assert.equal(githubCalls, 0);
+
+    const atOpen = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T08:00:00+08:00"));
+    assert.equal(atOpen.ok, true);
+    assert.equal(atOpen.status, 204);
+    assert.equal(githubCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("same-batch alert deduplication is SKU-specific across URL 1 and URL 2", async () => {
