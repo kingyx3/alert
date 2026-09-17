@@ -63,6 +63,29 @@ function alertBatchIdFor(batchId) {
   return String(batchId || "").replace(/:source-\d+$/, "");
 }
 
+function cloudflareBatchSequence(batchId) {
+  const match = String(batchId || "").match(/^cf-(\d+)(?::source-\d+)?$/);
+  if (!match) return null;
+  const sequence = Number(match[1]);
+  return Number.isSafeInteger(sequence) ? sequence : null;
+}
+
+function snapshotIsSuperseded(batchId, checkedAtMs, meta) {
+  const acceptedBatchId = String(meta?.lastIngestBatchId || "");
+  if (!acceptedBatchId || acceptedBatchId === batchId) return false;
+
+  const incomingSequence = cloudflareBatchSequence(batchId);
+  const acceptedSequence = cloudflareBatchSequence(acceptedBatchId);
+  if (incomingSequence !== null && acceptedSequence !== null) {
+    // Source-1, source-2, and the final complete snapshot of the same cf-N root
+    // are peers. Only a strictly older Cloudflare dispatch generation is stale.
+    return incomingSequence < acceptedSequence;
+  }
+
+  const lastSuccessMs = meta?.lastSuccessAt ? Date.parse(meta.lastSuccessAt) : 0;
+  return Number.isFinite(lastSuccessMs) && Number.isFinite(checkedAtMs) && lastSuccessMs >= checkedAtMs;
+}
+
 function alertedSkuKeys(meta, alertBatchId) {
   if (!alertBatchId || meta?.lastAlertBatchId !== alertBatchId) return new Set();
   return new Set(Array.isArray(meta?.lastAlertSkuKeys) ? meta.lastAlertSkuKeys.map(String) : []);
@@ -144,18 +167,14 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
 
       if (batchId && Number.isFinite(checkedAtMs)) {
         loaded = await this.loadState();
-        const lastSuccessMs = loaded.meta.lastSuccessAt ? Date.parse(loaded.meta.lastSuccessAt) : 0;
-        if (
-          loaded.meta.lastIngestBatchId &&
-          loaded.meta.lastIngestBatchId !== batchId &&
-          Number.isFinite(lastSuccessMs) &&
-          lastSuccessMs >= checkedAtMs
-        ) {
+        if (snapshotIsSuperseded(batchId, checkedAtMs, loaded.meta)) {
           this.log(loaded.meta, "external.snapshot.superseded", {
             batchId,
             alertBatchId,
             checkedAt,
+            batchSequence: cloudflareBatchSequence(batchId),
             acceptedBatchId: loaded.meta.lastIngestBatchId,
+            acceptedBatchSequence: cloudflareBatchSequence(loaded.meta.lastIngestBatchId),
             lastSuccessAt: loaded.meta.lastSuccessAt,
           });
           return {
@@ -172,6 +191,7 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
       const availableProducts = availableTcgProducts(payload, this.env);
       const initialized = Boolean(loaded.meta.initialized);
       const alreadyAlerted = alertedSkuKeys(loaded.meta, alertBatchId);
+      const alertsAllowed = !asBool(this.env.ALERT_WINDOW_ENFORCED, false) || isDispatchWindowSgt(Date.now());
       const transitionProducts = availableProducts.filter((product) => {
         const key = productKey(product);
         const previous = key ? loaded.inventory[key] : null;
@@ -185,7 +205,7 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
           })
         : [];
 
-      if (alertBatchId && persistentProducts.length > 0) {
+      if (alertBatchId && persistentProducts.length > 0 && alertsAllowed) {
         try {
           await sendPersistentStockTelegram(this.env, persistentProducts, checkedAt);
         } catch (error) {
@@ -233,6 +253,7 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
         !result?.duplicate &&
         !result?.superseded &&
         alertBatchId &&
+        alertsAllowed &&
         transitionAlertProducts.length > 0
       ) {
         const fresh = await this.loadState();
