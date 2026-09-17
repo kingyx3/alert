@@ -11,18 +11,13 @@ export const BLOCK_MARKERS = [
   "are you a robot",
 ];
 
-export const SCRAPING_URL_3_DEFAULT =
-  "https://www.lazada.sg/shop/renderApi/lzdPcPageData?pageId=166486685&shopId=2056827&clientType=pc&lang=en&pageType=1";
-
 const tcgKeywords = String(process.env.TCG_KEYWORDS || "pokemon,pokémon,tcg,trading card")
   .split(",")
   .map(normalizeSearchText)
   .filter(Boolean);
-const strictTcgKeywords = String(process.env.STRICT_TCG_KEYWORDS || "tcg,trading card game,trading card")
-  .split(",")
-  .map(normalizeSearchText)
-  .filter(Boolean);
 
+// SCRAPING_URL_3 is intentionally disabled for now because its stock signal is
+// not reliable enough for alerting. Keep the monitor on the two trusted sources.
 export const scrapingSources = [
   {
     name: "SCRAPING_URL",
@@ -35,12 +30,6 @@ export const scrapingSources = [
     url: String(process.env.SCRAPING_URL_2 || "").trim(),
     collectAllLists: false,
     keywords: tcgKeywords,
-  },
-  {
-    name: "SCRAPING_URL_3",
-    url: String(process.env.SCRAPING_URL_3 || SCRAPING_URL_3_DEFAULT).trim(),
-    collectAllLists: true,
-    keywords: strictTcgKeywords,
   },
 ];
 
