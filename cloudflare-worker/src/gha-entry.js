@@ -148,6 +148,7 @@ async function sendTelegram(env, products, checkedAt) {
   if (current.trim()) chunks.push(current.trimEnd());
 
   const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
+  let sent = 0;
   for (const text of chunks) {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -162,9 +163,10 @@ async function sendTelegram(env, products, checkedAt) {
     if (!response.ok) {
       throw new Error(`Telegram send failed HTTP ${response.status}: ${responseText.slice(0, 250)}`);
     }
+    sent += 1;
   }
 
-  return { chunks: chunks.length };
+  return { chunks: sent };
 }
 
 function externalHealth(meta, staleMs) {
@@ -270,6 +272,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
     const checkedAt = String(payload?.checkedAt || "").trim();
     const checkedAtMs = Date.parse(checkedAt);
     const rawProducts = Array.isArray(payload?.products) ? payload.products : [];
+    const complete = payload?.complete !== false;
 
     if (!batchId || batchId.length > 160) {
       return { ok: false, status: 400, error: "invalid_batch_id" };
@@ -287,8 +290,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
 
     const loaded = await this.loadState();
     if (loaded.meta.lastIngestBatchId === batchId) {
-      this.log(loaded.meta, "external.snapshot.duplicate", { batchId, runnerSlot });
-      await this.persist(loaded.inventory, loaded.meta);
+      this.log(loaded.meta, "external.snapshot.duplicate", { batchId, runnerSlot, complete });
       return {
         ok: true,
         duplicate: true,
@@ -349,15 +351,23 @@ export class LazadaMonitor extends BrowserRunMonitor {
       }
     }
 
-    for (const [key, previous] of Object.entries(inventory)) {
-      if (seenKeys.has(key)) continue;
-      previous.missingStreak = Number(previous.missingStreak || 0) + 1;
-      if (previous.missingStreak >= missingThreshold && previous.available !== false) {
-        previous.available = false;
-        previous.lastChangedAt = checkedAt;
+    // Only a complete merged snapshot is allowed to infer that an unseen SKU is
+    // missing. Fast-path source snapshots are intentionally partial so they can
+    // trigger Telegram immediately without corrupting inventory state.
+    if (complete) {
+      for (const [key, previous] of Object.entries(inventory)) {
+        if (seenKeys.has(key)) continue;
+        previous.missingStreak = Number(previous.missingStreak || 0) + 1;
+        if (previous.missingStreak >= missingThreshold && previous.available !== false) {
+          previous.available = false;
+          previous.lastChangedAt = checkedAt;
+        }
       }
     }
 
+    // Telegram is deliberately before diagnostics/meta bookkeeping and before the
+    // final persistence work. The first serialized clean ingest therefore starts
+    // the network notification as soon as the stock transition is known.
     try {
       if (!initialized) {
         meta.initialized = true;
@@ -376,9 +386,9 @@ export class LazadaMonitor extends BrowserRunMonitor {
       this.log(loaded.meta, "external.snapshot.telegram_error", {
         batchId,
         runnerSlot,
+        complete,
         message: String(error?.message || error),
       });
-      await this.persist(loaded.inventory, loaded.meta);
       return { ok: false, status: 502, error: "telegram_send_failed" };
     }
 
@@ -389,6 +399,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
       engine: SOURCE_ENGINE_GHA,
       batchId,
       runnerSlot,
+      complete,
       httpStatus: Number(payload?.httpStatus) || null,
       finalUrl: payload?.finalUrl ? String(payload.finalUrl).slice(0, 500) : null,
       productCount: products.length,
@@ -408,6 +419,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
     this.log(meta, "external.snapshot.accepted", {
       batchId,
       runnerSlot,
+      complete,
       products: products.length,
       trackedSkus: Object.keys(inventory).length,
       availableSkus: Object.values(inventory).filter((item) => item?.available === true).length,
@@ -420,6 +432,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
       ok: true,
       duplicate: false,
       acceptedBatchId: batchId,
+      complete,
       products: products.length,
       restocked: restocked.length,
       lastSuccessAt: checkedAt,
