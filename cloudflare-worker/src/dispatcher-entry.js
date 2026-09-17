@@ -3,7 +3,8 @@ import ghaWorker, { LazadaMonitor as ExternalSnapshotMonitor } from "./gha-entry
 const DEFAULT_GITHUB_REPOSITORY = "kingyx3/alert";
 const DEFAULT_GITHUB_WORKFLOW = "lazada-playwright-probe.yml";
 const DEFAULT_GITHUB_REF = "main";
-const DISPATCH_INTERVAL_MS = 30 * 1000;
+const DISPATCH_INTERVAL_MS = 10 * 1000;
+const DISPATCHES_PER_CRON = 60 * 1000 / DISPATCH_INTERVAL_MS;
 const DISPATCH_CLAIMS_STORAGE_KEY = "githubDispatchClaims";
 const DISPATCH_CLAIM_TTL_MS = 5 * 60 * 1000;
 
@@ -228,13 +229,13 @@ export default {
       return undefined;
     }
 
-    const immediateDispatch = dispatchAndLog(env, scheduledTime, "immediate");
-    const midpointDispatch = (async () => {
-      await scheduler.wait(DISPATCH_INTERVAL_MS);
-      return dispatchAndLog(env, scheduledTime + DISPATCH_INTERVAL_MS, "midpoint");
-    })();
+    const dispatches = Array.from({ length: DISPATCHES_PER_CRON }, (_, index) => (async () => {
+      const delayMs = index * DISPATCH_INTERVAL_MS;
+      if (delayMs > 0) await scheduler.wait(delayMs);
+      return dispatchAndLog(env, scheduledTime + delayMs, `slot-${index + 1}`);
+    })());
 
-    await Promise.all([immediateDispatch, midpointDispatch]);
+    await Promise.all(dispatches);
   },
 
   async fetch(request, env, ctx) {
@@ -244,10 +245,10 @@ export default {
       return jsonResponse({
         status: config.configured ? "ok" : "fallback",
         scheduler: "cloudflare-cron",
-        frequencySeconds: 30,
+        frequencySeconds: 10,
         cronFrequencySeconds: 60,
-        midpointDispatchDelaySeconds: 30,
-        dispatchDeduplication: "durable-object-30-second-key",
+        dispatchOffsetsSeconds: [0, 10, 20, 30, 40, 50],
+        dispatchDeduplication: "durable-object-10-second-key",
         githubDispatchConfigured: config.configured,
         repository: config.repository,
         workflow: config.workflow,
