@@ -7,6 +7,14 @@ const DISPATCH_INTERVAL_MS = 10 * 1000;
 const DISPATCHES_PER_CRON = 60 * 1000 / DISPATCH_INTERVAL_MS;
 const DISPATCH_CLAIMS_STORAGE_KEY = "githubDispatchClaims";
 const DISPATCH_CLAIM_TTL_MS = 5 * 60 * 1000;
+const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
+const ACTIVE_START_HOUR_SGT = 8;
+const ACTIVE_END_HOUR_SGT = 20;
+
+function isDispatchWindowSgt(timestamp = Date.now()) {
+  const hour = new Date(Number(timestamp) + SGT_OFFSET_MS).getUTCHours();
+  return hour >= ACTIVE_START_HOUR_SGT && hour < ACTIVE_END_HOUR_SGT;
+}
 
 function normalizeText(value) {
   return String(value ?? "")
@@ -177,9 +185,6 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
           })
         : [];
 
-      // Persistent-stock alerts are SKU-specific. A SKU already reported by URL 1
-      // is suppressed for the same 10-second root batch, but a different in-stock
-      // SKU first seen on URL 2 remains immediately eligible to notify.
       if (alertBatchId && persistentProducts.length > 0) {
         try {
           await sendPersistentStockTelegram(this.env, persistentProducts, checkedAt);
@@ -212,9 +217,6 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
 
       const result = await super.ingestSnapshot(payload);
 
-      // The base ingestion path sends first-run/restock alerts. Record only the
-      // SKUs that were actually transition-eligible, preserving any persistent
-      // SKU keys already alerted by another source in this same root batch.
       const transitionAlertProducts =
         !initialized && asBool(this.env.ALERT_ON_FIRST_RUN, false)
           ? availableProducts.filter((product) => {
@@ -343,12 +345,23 @@ async function claimGithubDispatchSlot(env, dispatchKey) {
 }
 
 export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
+  const dispatchTime = Number(scheduledTime || Date.now());
+  const dispatchKey = dispatchKeyFor(dispatchTime);
+  if (!isDispatchWindowSgt(dispatchTime)) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "outside_08_20_sgt_window",
+      dispatchKey,
+      scheduledAt: new Date(dispatchTime).toISOString(),
+    };
+  }
+
   const config = dispatchConfig(env);
   if (!config.configured) {
     return { ok: false, skipped: true, reason: "github_actions_token_missing" };
   }
 
-  const dispatchKey = dispatchKeyFor(scheduledTime);
   const endpoint = `https://api.github.com/repos/${config.repository}/actions/workflows/${encodeURIComponent(config.workflow)}/dispatches`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -364,7 +377,7 @@ export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
       inputs: {
         trigger_source: "cloudflare-cron",
         dispatch_key: dispatchKey,
-        scheduled_at: new Date(Number(scheduledTime || Date.now())).toISOString(),
+        scheduled_at: new Date(dispatchTime).toISOString(),
       },
     }),
   });
@@ -378,12 +391,25 @@ export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
     ok: true,
     status: response.status,
     dispatchKey,
-    scheduledAt: new Date(Number(scheduledTime || Date.now())).toISOString(),
+    scheduledAt: new Date(dispatchTime).toISOString(),
   };
 }
 
 async function dispatchAndLog(env, scheduledTime, slot) {
-  const dispatchKey = dispatchKeyFor(scheduledTime);
+  const dispatchTime = Number(scheduledTime || Date.now());
+  const dispatchKey = dispatchKeyFor(dispatchTime);
+  if (!isDispatchWindowSgt(dispatchTime)) {
+    const result = {
+      ok: true,
+      skipped: true,
+      reason: "outside_08_20_sgt_window",
+      dispatchKey,
+      scheduledAt: new Date(dispatchTime).toISOString(),
+    };
+    console.log(`GitHub workflow ${slot} off-hours skipped`, result);
+    return result;
+  }
+
   try {
     const claim = await claimGithubDispatchSlot(env, dispatchKey);
     if (!claim.claimed) {
@@ -392,13 +418,13 @@ async function dispatchAndLog(env, scheduledTime, slot) {
         skipped: true,
         reason: "duplicate_dispatch_key",
         dispatchKey,
-        scheduledAt: new Date(Number(scheduledTime || Date.now())).toISOString(),
+        scheduledAt: new Date(dispatchTime).toISOString(),
       };
       console.log(`GitHub workflow ${slot} duplicate skipped`, result);
       return result;
     }
 
-    const result = await dispatchGithubWorkflow(env, scheduledTime);
+    const result = await dispatchGithubWorkflow(env, dispatchTime);
     console.log(`GitHub workflow ${slot} dispatch accepted`, result);
     return result;
   } catch (error) {
@@ -412,6 +438,11 @@ export default {
 
   async scheduled(controller, env, ctx) {
     const scheduledTime = Number(controller?.scheduledTime || Date.now());
+    if (!isDispatchWindowSgt(scheduledTime)) {
+      console.log("Cloudflare scheduled event outside 08:00-20:00 SGT; no GitHub workflow will be created.");
+      return undefined;
+    }
+
     if (!env.GITHUB_ACTIONS_TOKEN) {
       console.warn("GitHub dispatch token is not configured; relying on the GitHub scheduled fallback.");
       if (typeof ghaWorker.scheduled === "function") {
@@ -437,6 +468,7 @@ export default {
         status: config.configured ? "ok" : "fallback",
         scheduler: "cloudflare-cron",
         frequencySeconds: 10,
+        activeWindowSgt: "08:00-20:00",
         cronFrequencySeconds: 60,
         dispatchOffsetsSeconds: [0, 10, 20, 30, 40, 50],
         dispatchDeduplication: "durable-object-10-second-key",
