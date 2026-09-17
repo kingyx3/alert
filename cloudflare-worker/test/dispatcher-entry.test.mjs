@@ -18,7 +18,7 @@ function makeState() {
   };
 }
 
-test("duplicate Cloudflare deliveries claim a 30-second dispatch key only once", async () => {
+test("duplicate Cloudflare deliveries claim a 10-second dispatch key only once", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {});
 
