@@ -22,7 +22,7 @@ const payload = JSON.stringify({
   },
 });
 
-test("SCRAPING_URL_3 mode scans all product lists and keeps only TCG titles", () => {
+test("collect-all-lists mode scans all product lists and keeps only TCG titles", () => {
   const parsed = parseProducts(payload, {
     collectAllLists: true,
     keywords: ["tcg", "trading card game", "trading card"],
@@ -36,7 +36,7 @@ test("SCRAPING_URL_3 mode scans all product lists and keeps only TCG titles", ()
   );
 });
 
-test("legacy source mode still selects the largest candidate list", () => {
+test("trusted source mode still selects the largest candidate list", () => {
   const parsed = parseProducts(payload, {
     collectAllLists: false,
     keywords: ["pokemon"],
@@ -46,5 +46,45 @@ test("legacy source mode still selects the largest candidate list", () => {
   assert.deepEqual(
     parsed.products.map((product) => product.sku).sort(),
     ["ACCESSORY-1", "ACCESSORY-2", "ACCESSORY-3"],
+  );
+});
+
+test("ambiguous explicit stock fields fall through to stronger quantity/status signals", () => {
+  const parsed = parseProducts(JSON.stringify({
+    data: {
+      products: [
+        {
+          title: "Pokémon TCG Quantity Product",
+          sku: "QTY-1",
+          inStock: null,
+          stockCount: 3,
+        },
+        {
+          title: "Pokémon TCG Status Product",
+          sku: "STATUS-1",
+          soldOut: "unknown",
+          stockStatus: "in stock",
+        },
+        {
+          title: "Pokémon TCG Empty Quantity Product",
+          sku: "EMPTY-1",
+          inStock: null,
+          stock: "",
+          availability: "available",
+        },
+      ],
+    },
+  }), {
+    collectAllLists: false,
+    keywords: ["tcg"],
+  });
+
+  assert.deepEqual(
+    Object.fromEntries(parsed.tcgProducts.map((product) => [product.sku, product.inStock])),
+    {
+      "QTY-1": true,
+      "STATUS-1": true,
+      "EMPTY-1": true,
+    },
   );
 });
