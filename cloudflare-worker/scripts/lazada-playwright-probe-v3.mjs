@@ -75,6 +75,22 @@ async function appendSummary(diagnostics) {
   await writeFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`, { flag: "a" });
 }
 
+function bestRenderedParse(current, candidates, source) {
+  let best = current;
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const parsed = parseProducts(candidate, source);
+    if (
+      parsed.tcgProducts.length > best.tcgProducts.length ||
+      parsed.products.length > best.products.length ||
+      (!best.payloadFound && parsed.payloadFound)
+    ) {
+      best = parsed;
+    }
+  }
+  return best;
+}
+
 async function probeSource(context, source, sourceIndex) {
   const page = await context.newPage();
   const navigationStartedAt = Date.now();
@@ -108,7 +124,10 @@ async function probeSource(context, source, sourceIndex) {
       lower = `${finalUrl}\n${title}\n${bodyText}\n${html}`.toLowerCase();
       blockMarker = BLOCK_MARKERS.find((marker) => lower.includes(marker)) || null;
       if (!parsed.payloadFound || parsed.products.length === 0) {
-        parsed = parseProducts(sourceBody || bodyText || html, source);
+        // The navigation response can be a shell while the rendered DOM contains
+        // the product JSON. Actually parse the rendered page instead of re-parsing
+        // the same non-empty sourceBody that already failed.
+        parsed = bestRenderedParse(parsed, [html, bodyText], source);
       }
     }
 
