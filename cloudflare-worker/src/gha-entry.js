@@ -1,13 +1,12 @@
-import worker, {
-  LazadaMonitor as BrowserRunMonitor,
-  isActiveSgt,
-  nextActiveStart,
-} from "./entry.js";
+import worker, { LazadaMonitor as BrowserRunMonitor } from "./entry.js";
 
 const SOURCE_ENGINE_GHA = "github-actions-playwright";
 const DEFAULT_EXTERNAL_STALE_SECONDS = 20 * 60;
 const MAX_SNAPSHOT_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_PRODUCTS = 250;
+const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
+const ACTIVE_START_HOUR_SGT = 8;
+const ACTIVE_END_HOUR_SGT = 20;
 
 function asInt(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -22,6 +21,21 @@ function asBool(value, fallback = false) {
   if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
   return fallback;
+}
+
+function isExternalActiveSgt(timestamp = Date.now()) {
+  const hour = new Date(Number(timestamp) + SGT_OFFSET_MS).getUTCHours();
+  return hour >= ACTIVE_START_HOUR_SGT && hour < ACTIVE_END_HOUR_SGT;
+}
+
+function nextExternalActiveStart(timestamp = Date.now()) {
+  const local = new Date(Number(timestamp) + SGT_OFFSET_MS);
+  const year = local.getUTCFullYear();
+  const month = local.getUTCMonth();
+  const day = local.getUTCDate();
+  const hour = local.getUTCHours();
+  const startDay = hour < ACTIVE_START_HOUR_SGT ? day : day + 1;
+  return Date.UTC(year, month, startDay, ACTIVE_START_HOUR_SGT, 0, 0, 0) - SGT_OFFSET_MS;
 }
 
 function normalizeText(value) {
@@ -171,7 +185,7 @@ async function sendTelegram(env, products, checkedAt) {
 
 function externalHealth(meta, staleMs) {
   const now = Date.now();
-  const sleeping = !isActiveSgt(now);
+  const sleeping = !isExternalActiveSgt(now);
   const lastSuccessMs = meta.lastSuccessAt ? Date.parse(meta.lastSuccessAt) : 0;
   const stale = !lastSuccessMs || now - lastSuccessMs > staleMs;
   const degraded = !sleeping && stale;
@@ -179,7 +193,7 @@ function externalHealth(meta, staleMs) {
   return {
     status: degraded ? "degraded" : "ok",
     mode: sleeping ? "sleeping" : "active",
-    activeWindowSgt: "08:00-24:00",
+    activeWindowSgt: "08:00-20:00",
     sourceEngine: SOURCE_ENGINE_GHA,
     externalSnapshotMode: true,
     healthStaleAfterSeconds: Math.round(staleMs / 1000),
@@ -196,7 +210,7 @@ function externalHealth(meta, staleMs) {
     recoveryMode: false,
     recoverySuccesses: 0,
     nextAlarmAt: null,
-    sleepingUntil: sleeping ? new Date(nextActiveStart(now)).toISOString() : null,
+    sleepingUntil: sleeping ? new Date(nextExternalActiveStart(now)).toISOString() : null,
   };
 }
 
@@ -340,20 +354,22 @@ export class LazadaMonitor extends BrowserRunMonitor {
 
       previous.lastSeenAt = checkedAt;
       previous.missingStreak = 0;
-      previous.product = product;
+      const ignorePartialOutOfStock = !complete && product.inStock === false && previous.available === true;
+      previous.product = ignorePartialOutOfStock ? { ...product, inStock: true } : product;
       if (product.inStock === true && previous.available !== true) {
         previous.available = true;
         previous.lastChangedAt = checkedAt;
         if (initialized) restocked.push(product);
-      } else if (product.inStock === false && previous.available !== false) {
+      } else if (complete && product.inStock === false && previous.available !== false) {
         previous.available = false;
         previous.lastChangedAt = checkedAt;
       }
     }
 
     // Only a complete merged snapshot is allowed to infer that an unseen SKU is
-    // missing. Fast-path source snapshots are intentionally partial so they can
-    // trigger Telegram immediately without corrupting inventory state.
+    // missing or to confirm an explicit out-of-stock transition. Fast-path source
+    // snapshots are positive-authoritative only so one source cannot temporarily
+    // override another source's in-stock signal while the batch is still running.
     if (complete) {
       for (const [key, previous] of Object.entries(inventory)) {
         if (seenKeys.has(key)) continue;
@@ -365,22 +381,32 @@ export class LazadaMonitor extends BrowserRunMonitor {
       }
     }
 
-    // Telegram is deliberately before diagnostics/meta bookkeeping and before the
-    // final persistence work. The first serialized clean ingest therefore starts
-    // the network notification as soon as the stock transition is known.
+    const alertsAllowed = !asBool(this.env.ALERT_WINDOW_ENFORCED, false) || isExternalActiveSgt(Date.now());
+    let alertProducts = [];
+    if (!initialized) {
+      meta.initialized = true;
+      if (asBool(this.env.ALERT_ON_FIRST_RUN, false)) {
+        alertProducts = products.filter((product) => product.inStock === true);
+      }
+    } else {
+      alertProducts = restocked;
+    }
+
+    // Telegram remains before diagnostics/meta bookkeeping and final persistence.
+    // Outside the configured alert window, state is still reconciled so the first
+    // active-window batch can immediately report any stock that remains available.
     try {
-      if (!initialized) {
-        meta.initialized = true;
-        if (asBool(this.env.ALERT_ON_FIRST_RUN, false)) {
-          const available = products.filter((product) => product.inStock === true);
-          if (available.length) {
-            await sendTelegram(this.env, available, checkedAt);
-            meta.lastAlertAt = checkedAt;
-          }
-        }
-      } else if (restocked.length) {
-        await sendTelegram(this.env, restocked, checkedAt);
+      if (alertProducts.length && alertsAllowed) {
+        await sendTelegram(this.env, alertProducts, checkedAt);
         meta.lastAlertAt = checkedAt;
+      } else if (alertProducts.length) {
+        this.log(meta, "external.snapshot.alert_suppressed", {
+          batchId,
+          runnerSlot,
+          complete,
+          reason: "outside_08_20_sgt_window",
+          products: alertProducts.length,
+        });
       }
     } catch (error) {
       this.log(loaded.meta, "external.snapshot.telegram_error", {
@@ -468,6 +494,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
         sourceEngine: SOURCE_ENGINE_GHA,
         externalSnapshotMode: true,
         externalHealthStaleSeconds: this.externalStaleMs() / 1000,
+        activeWindowSgt: "08:00-20:00",
         browserRunEnabled: false,
       };
       return jsonResponse(payload, response.status);
