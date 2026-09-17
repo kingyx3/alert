@@ -31,20 +31,13 @@ on:
       - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
   schedule:
-    # Delayed fallback only. Cloudflare dispatches the primary batch every minute.
+    # Delayed fallback only. Cloudflare fans out the primary batches every 10 seconds.
     # GitHub's minimum schedule interval is 5 minutes, so this only fills gaps.
     - cron: '*/5 8-23 * * *'
       timezone: 'Asia/Singapore'
 
 permissions:
   contents: read
-
-concurrency:
-  # Cloudflare-dispatched minute batches get independent groups so a new minute does
-  # not cancel an older batch that is still finishing. Scheduled fallbacks remain
-  # serialized on the ref.
-  group: lazada-playwright-monitor-${{ github.event_name == 'workflow_dispatch' && (inputs.dispatch_key || github.run_id) || github.ref }}
-  cancel-in-progress: true
 
 env:
   MONITOR_URL: https://lazada-tcg-restock-monitor.kingyx33.workers.dev
@@ -311,7 +304,7 @@ jobs:
           print('Batch succeeded: at least one independent runner produced a clean snapshot.')
           PY
 
-      - name: Verify live Worker accepted this batch or a newer minute batch
+      - name: Verify live Worker accepted this batch or a newer dispatch batch
         if: github.event_name != 'pull_request'
         env:
           EXPECTED_BATCH_ID: ${{ needs.gate.outputs.batch_id }}
@@ -326,7 +319,7 @@ jobs:
           expected = os.environ['EXPECTED_BATCH_ID']
           actual = health.get('lastAcceptedBatchId') or ''
 
-          def cloudflare_minute(value):
+          def cloudflare_slot(value):
               if not value.startswith('cf-'):
                   return None
               try:
@@ -334,11 +327,11 @@ jobs:
               except ValueError:
                   return None
 
-          expected_minute = cloudflare_minute(expected)
-          actual_minute = cloudflare_minute(actual)
+          expected_slot = cloudflare_slot(expected)
+          actual_slot = cloudflare_slot(actual)
           accepted_or_newer = actual == expected
-          if expected_minute is not None and actual_minute is not None:
-              accepted_or_newer = actual_minute >= expected_minute
+          if expected_slot is not None and actual_slot is not None:
+              accepted_or_newer = actual_slot >= expected_slot
 
           checks = {
               'externalSnapshotMode': health.get('externalSnapshotMode') is True,
@@ -348,6 +341,6 @@ jobs:
           }
           print('Health verification:', checks, 'expected=', expected, 'actual=', actual)
           if not all(checks.values()):
-              print(f"Worker health did not confirm batch {expected} or a newer minute batch", file=sys.stderr)
+              print(f"Worker health did not confirm batch {expected} or a newer dispatch batch", file=sys.stderr)
               sys.exit(1)
           PY
