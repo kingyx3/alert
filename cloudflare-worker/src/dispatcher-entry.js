@@ -55,6 +55,11 @@ function alertBatchIdFor(batchId) {
   return String(batchId || "").replace(/:source-\d+$/, "");
 }
 
+function alertedSkuKeys(meta, alertBatchId) {
+  if (!alertBatchId || meta?.lastAlertBatchId !== alertBatchId) return new Set();
+  return new Set(Array.isArray(meta?.lastAlertSkuKeys) ? meta.lastAlertSkuKeys.map(String) : []);
+}
+
 function formatPrice(product) {
   if (product?.priceShow) return String(product.priceShow);
   const price = Number(product?.price);
@@ -115,9 +120,6 @@ async function sendPersistentStockTelegram(env, products, checkedAt) {
 
 export class LazadaMonitor extends ExternalSnapshotMonitor {
   async ingestSnapshot(payload) {
-    // Serialize snapshot decisions inside this Durable Object instance. The first
-    // clean runner can send Telegram immediately, while later runners wait only
-    // for that ingestion decision instead of racing and duplicating an alert.
     const previousIngest = this._ingestTail || Promise.resolve();
     let releaseIngest;
     this._ingestTail = new Promise((resolve) => {
@@ -161,27 +163,26 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
       if (!loaded) loaded = await this.loadState();
       const availableProducts = availableTcgProducts(payload, this.env);
       const initialized = Boolean(loaded.meta.initialized);
-      const alertAlreadySent = Boolean(alertBatchId) && loaded.meta.lastAlertBatchId === alertBatchId;
-      const transitionExpected = availableProducts.some((product) => {
+      const alreadyAlerted = alertedSkuKeys(loaded.meta, alertBatchId);
+      const transitionProducts = availableProducts.filter((product) => {
         const key = productKey(product);
         const previous = key ? loaded.inventory[key] : null;
         return !previous || previous.available !== true;
       });
+      const persistentProducts = initialized
+        ? availableProducts.filter((product) => {
+            const key = productKey(product);
+            const previous = key ? loaded.inventory[key] : null;
+            return previous?.available === true && key && !alreadyAlerted.has(key);
+          })
+        : [];
 
-      // Transition/first-run alerts are still handled by the base ingestion path.
-      // If everything shown in stock was already known to be available, this is a
-      // persistent-stock check: notify immediately once for this 10-second root
-      // batch, before normal snapshot bookkeeping. Source/runners share the same
-      // root alertBatchId, so they cannot multiply-notify the same check.
-      if (
-        alertBatchId &&
-        availableProducts.length > 0 &&
-        initialized &&
-        !transitionExpected &&
-        !alertAlreadySent
-      ) {
+      // Persistent-stock alerts are SKU-specific. A SKU already reported by URL 1
+      // is suppressed for the same 10-second root batch, but a different in-stock
+      // SKU first seen on URL 2 remains immediately eligible to notify.
+      if (alertBatchId && persistentProducts.length > 0) {
         try {
-          await sendPersistentStockTelegram(this.env, availableProducts, checkedAt);
+          await sendPersistentStockTelegram(this.env, persistentProducts, checkedAt);
         } catch (error) {
           this.log(loaded.meta, "external.snapshot.telegram_error", {
             batchId,
@@ -192,36 +193,55 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
           return { ok: false, status: 502, error: "telegram_send_failed" };
         }
 
+        const keys = new Set(alreadyAlerted);
+        for (const product of persistentProducts) {
+          const key = productKey(product);
+          if (key) keys.add(key);
+        }
         loaded.meta.lastAlertBatchId = alertBatchId;
+        loaded.meta.lastAlertSkuKeys = [...keys];
         loaded.meta.lastAlertAt = checkedAt;
         this.log(loaded.meta, "external.snapshot.stock_still_available_alert", {
           batchId,
           alertBatchId,
-          products: availableProducts.length,
+          products: persistentProducts.length,
+          skuKeys: [...keys],
         });
         await this.persist(loaded.inventory, loaded.meta);
       }
 
       const result = await super.ingestSnapshot(payload);
 
-      // The base path sends the first-run/restock Telegram. Record the shared root
-      // batch only after a successful ingest so later sources/runners in the same
-      // 10-second check do not send another notification.
-      const transitionAlertExpected =
-        alertBatchId &&
-        availableProducts.length > 0 &&
-        !alertAlreadySent &&
-        (
-          (initialized && transitionExpected) ||
-          (!initialized && asBool(this.env.ALERT_ON_FIRST_RUN, false))
-        );
+      // The base ingestion path sends first-run/restock alerts. Record only the
+      // SKUs that were actually transition-eligible, preserving any persistent
+      // SKU keys already alerted by another source in this same root batch.
+      const transitionAlertProducts =
+        !initialized && asBool(this.env.ALERT_ON_FIRST_RUN, false)
+          ? availableProducts.filter((product) => {
+              const key = productKey(product);
+              return key && !alreadyAlerted.has(key);
+            })
+          : transitionProducts.filter((product) => {
+              const key = productKey(product);
+              return key && !alreadyAlerted.has(key);
+            });
 
-      if (result?.ok === true && !result?.duplicate && !result?.superseded && transitionAlertExpected) {
+      if (
+        result?.ok === true &&
+        !result?.duplicate &&
+        !result?.superseded &&
+        alertBatchId &&
+        transitionAlertProducts.length > 0
+      ) {
         const fresh = await this.loadState();
-        if (fresh.meta.lastAlertBatchId !== alertBatchId) {
-          fresh.meta.lastAlertBatchId = alertBatchId;
-          await this.persist(fresh.inventory, fresh.meta);
+        const keys = alertedSkuKeys(fresh.meta, alertBatchId);
+        for (const product of transitionAlertProducts) {
+          const key = productKey(product);
+          if (key) keys.add(key);
         }
+        fresh.meta.lastAlertBatchId = alertBatchId;
+        fresh.meta.lastAlertSkuKeys = [...keys];
+        await this.persist(fresh.inventory, fresh.meta);
       }
 
       return result;
@@ -231,9 +251,6 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
   }
 
   async claimGithubDispatch(dispatchKey) {
-    // Cloudflare may deliver the same cron slot more than once. Serialize claims
-    // through the singleton Durable Object and persist recent keys so duplicate
-    // scheduled events cannot create duplicate GitHub workflow_dispatch runs.
     const previousClaim = this._dispatchClaimTail || Promise.resolve();
     let releaseClaim;
     this._dispatchClaimTail = new Promise((resolve) => {
