@@ -93,6 +93,15 @@ function productKey(product) {
   return null;
 }
 
+function alertBatchIdFor(batchId) {
+  return String(batchId || "").replace(/:source-\d+$/, "");
+}
+
+function alertedSkuKeys(meta, alertBatchId) {
+  if (!alertBatchId || meta?.lastAlertBatchId !== alertBatchId) return new Set();
+  return new Set(Array.isArray(meta?.lastAlertSkuKeys) ? meta.lastAlertSkuKeys.map(String) : []);
+}
+
 function normalizeProduct(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const name = String(raw.name || "").trim();
@@ -282,6 +291,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
     }
 
     const batchId = String(payload?.batchId || "").trim();
+    const alertBatchId = alertBatchIdFor(batchId);
     const runnerSlot = String(payload?.runnerSlot || "").trim() || null;
     const checkedAt = String(payload?.checkedAt || "").trim();
     const checkedAtMs = Date.parse(checkedAt);
@@ -329,6 +339,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
     const inventory = structuredClone(loaded.inventory);
     const meta = structuredClone(loaded.meta);
     const initialized = Boolean(meta.initialized);
+    const alreadyAlerted = alertedSkuKeys(meta, alertBatchId);
     const restocked = [];
     const seenKeys = new Set();
     const missingThreshold = this.missingConfirmations();
@@ -392,16 +403,29 @@ export class LazadaMonitor extends BrowserRunMonitor {
       alertProducts = restocked;
     }
 
-    // Telegram remains before diagnostics/meta bookkeeping and final persistence.
-    // Outside the configured alert window, state is still reconciled so the first
-    // active-window batch can immediately report any stock that remains available.
+    // The same SKU may be observed by two URLs or several redundant runners in
+    // one cf-N generation. Enforce the SKU-specific root-batch dedupe at the base
+    // transition-alert layer so no interleaving can bypass it.
+    alertProducts = alertProducts.filter((product) => {
+      const key = productKey(product);
+      return key && !alreadyAlerted.has(key);
+    });
+
     try {
       if (alertProducts.length && alertsAllowed) {
         await sendTelegram(this.env, alertProducts, checkedAt);
+        const alerted = new Set(alreadyAlerted);
+        for (const product of alertProducts) {
+          const key = productKey(product);
+          if (key) alerted.add(key);
+        }
+        meta.lastAlertBatchId = alertBatchId;
+        meta.lastAlertSkuKeys = [...alerted];
         meta.lastAlertAt = checkedAt;
       } else if (alertProducts.length) {
         this.log(meta, "external.snapshot.alert_suppressed", {
           batchId,
+          alertBatchId,
           runnerSlot,
           complete,
           reason: "outside_08_20_sgt_window",
@@ -411,6 +435,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
     } catch (error) {
       this.log(loaded.meta, "external.snapshot.telegram_error", {
         batchId,
+        alertBatchId,
         runnerSlot,
         complete,
         message: String(error?.message || error),
@@ -450,6 +475,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
       trackedSkus: Object.keys(inventory).length,
       availableSkus: Object.values(inventory).filter((item) => item?.available === true).length,
       restockedSkus: restocked.length,
+      alertedSkus: alertProducts.length,
     });
     await this.state.storage.deleteAlarm();
     await this.persist(inventory, meta);
@@ -461,6 +487,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
       complete,
       products: products.length,
       restocked: restocked.length,
+      alerted: alertProducts.length && alertsAllowed ? alertProducts.length : 0,
       lastSuccessAt: checkedAt,
     };
   }
