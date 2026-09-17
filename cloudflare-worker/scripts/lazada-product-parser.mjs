@@ -18,14 +18,19 @@ function parseBooleanSignal(value) {
 }
 
 function inferInStock(item) {
-  if (Object.prototype.hasOwnProperty.call(item, "inStock")) return parseBooleanSignal(item.inStock);
+  if (Object.prototype.hasOwnProperty.call(item, "inStock")) {
+    const inStock = parseBooleanSignal(item.inStock);
+    if (inStock !== null) return inStock;
+  }
   if (Object.prototype.hasOwnProperty.call(item, "soldOut")) {
     const soldOut = parseBooleanSignal(item.soldOut);
-    return soldOut === null ? null : !soldOut;
+    if (soldOut !== null) return !soldOut;
   }
   for (const key of ["stock", "stockCount", "quantity", "availableStock"]) {
     if (Object.prototype.hasOwnProperty.call(item, key)) {
-      const value = Number(item[key]);
+      const raw = item[key];
+      if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+      const value = Number(raw);
       if (Number.isFinite(value)) return value > 0;
     }
   }
