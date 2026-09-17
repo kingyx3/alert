@@ -22,14 +22,6 @@ on:
       - 'cloudflare-worker/src/dispatcher-entry.js'
       - 'cloudflare-worker/wrangler.toml'
       - '.github/workflows/lazada-playwright-probe.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'cloudflare-worker/scripts/lazada-playwright-probe.mjs'
-      - 'cloudflare-worker/src/gha-entry.js'
-      - 'cloudflare-worker/src/dispatcher-entry.js'
-      - 'cloudflare-worker/wrangler.toml'
-      - '.github/workflows/lazada-playwright-probe.yml'
   schedule:
     # Delayed fallback only. Cloudflare fans out the primary batches every 10 seconds.
     # GitHub's minimum schedule interval is 5 minutes, so this only fills gaps.
@@ -109,23 +101,6 @@ jobs:
 
           echo "should_run=${should_run}" >> "${GITHUB_OUTPUT}"
           echo "batch_id=${batch_id}" >> "${GITHUB_OUTPUT}"
-
-      - name: Wait for external-snapshot Worker after a push
-        if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 18); do
-            body="$(curl --silent --show-error --max-time 10 "${MONITOR_URL}/healthz" || true)"
-            echo "Deployment gate attempt ${attempt}: ${body}"
-            if grep -q '"externalSnapshotMode": true' <<<"${body}" && \
-               grep -q '"sourceEngine": "github-actions-playwright"' <<<"${body}"; then
-              echo "External-snapshot Worker is live."
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "Worker did not expose external-snapshot mode before timeout." >&2
-          exit 1
 
   probe:
     name: primary-${{ matrix.slot }}
