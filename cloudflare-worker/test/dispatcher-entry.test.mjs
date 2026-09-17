@@ -40,6 +40,16 @@ function product(overrides = {}) {
   };
 }
 
+function secondProduct(overrides = {}) {
+  return product({
+    name: "Pokémon TCG Second Product",
+    skuId: "1002",
+    sku: "TEST_SKU_2",
+    url: "https://www.lazada.sg/products/test-2.html",
+    ...overrides,
+  });
+}
+
 test("duplicate Cloudflare deliveries claim a 10-second dispatch key only once", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {});
@@ -67,7 +77,7 @@ test("concurrent claims for the same dispatch key serialize to one winner", asyn
   assert.equal(results.filter((result) => !result.claimed).length, 2);
 });
 
-test("stock alerts repeat on the next 10-second batch but not across sources in the same batch", async () => {
+test("same-batch alert deduplication is SKU-specific across URL 1 and URL 2", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
@@ -79,13 +89,13 @@ test("stock alerts repeat on the next 10-second batch but not across sources in 
   });
 
   const originalFetch = globalThis.fetch;
-  let telegramCalls = 0;
-  globalThis.fetch = async (url) => {
+  const telegramBodies = [];
+  globalThis.fetch = async (url, init) => {
     const target = String(url);
     if (!target.startsWith("https://api.telegram.org/")) {
       throw new Error(`Unexpected fetch: ${target}`);
     }
-    telegramCalls += 1;
+    telegramBodies.push(JSON.parse(init.body));
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -98,44 +108,62 @@ test("stock alerts repeat on the next 10-second batch but not across sources in 
       batchId: "baseline",
       runnerSlot: "1",
       checkedAt: baselineAt,
-      products: [product({ inStock: false })],
+      products: [product({ inStock: false }), secondProduct({ inStock: false })],
       complete: true,
     });
-    assert.equal(telegramCalls, 0);
+    assert.equal(telegramBodies.length, 0);
 
-    const firstStockAt = new Date(Date.now() - 3000).toISOString();
-    const first = await monitor.ingestSnapshot({
+    const url1At = new Date(Date.now() - 3000).toISOString();
+    const url1 = await monitor.ingestSnapshot({
       batchId: "cf-100:source-1",
       runnerSlot: "1",
-      checkedAt: firstStockAt,
+      checkedAt: url1At,
       products: [product({ inStock: true })],
       complete: false,
     });
-    assert.equal(first.ok, true);
-    assert.equal(telegramCalls, 1, "stock transition should alert immediately");
+    assert.equal(url1.ok, true);
+    assert.equal(telegramBodies.length, 1, "URL 1 should alert SKU 1001");
+    assert.match(telegramBodies[0].text, /1001/);
 
-    const sameBatchAt = new Date(Date.now() - 2000).toISOString();
-    const sameBatch = await monitor.ingestSnapshot({
+    const url2At = new Date(Date.now() - 2000).toISOString();
+    const url2 = await monitor.ingestSnapshot({
       batchId: "cf-100:source-2",
       runnerSlot: "2",
-      checkedAt: sameBatchAt,
-      products: [product({ inStock: true })],
+      checkedAt: url2At,
+      products: [product({ inStock: true }), secondProduct({ inStock: true })],
       complete: false,
     });
-    assert.equal(sameBatch.ok, true);
-    assert.equal(telegramCalls, 1, "second source in the same root batch must not duplicate the alert");
+    assert.equal(url2.ok, true);
+    assert.equal(telegramBodies.length, 2, "URL 2 must still alert its newly found SKU 1002");
+    assert.match(telegramBodies[1].text, /1002/);
+    assert.doesNotMatch(telegramBodies[1].text, /SKU: 1001/);
+
+    const sameBatchDuplicate = await monitor.ingestSnapshot({
+      batchId: "cf-100:source-2",
+      runnerSlot: "3",
+      checkedAt: new Date(Date.now() - 1500).toISOString(),
+      products: [product({ inStock: true }), secondProduct({ inStock: true })],
+      complete: false,
+    });
+    assert.equal(sameBatchDuplicate.ok, true);
+    assert.equal(telegramBodies.length, 2, "same SKUs in the same root batch must remain deduplicated");
 
     const nextBatchAt = new Date(Date.now() - 1000).toISOString();
     const stillInStock = await monitor.ingestSnapshot({
       batchId: "cf-101:source-1",
       runnerSlot: "1",
       checkedAt: nextBatchAt,
-      products: [product({ inStock: true })],
+      products: [product({ inStock: true }), secondProduct({ inStock: true })],
       complete: false,
     });
     assert.equal(stillInStock.ok, true);
-    assert.equal(telegramCalls, 2, "next 10-second root batch should alert again while stock remains");
-    assert.equal(state.values.get("meta").lastAlertBatchId, "cf-101");
+    assert.equal(telegramBodies.length, 3, "next 10-second batch should alert both still-in-stock SKUs again");
+    assert.match(telegramBodies[2].text, /1001/);
+    assert.match(telegramBodies[2].text, /1002/);
+
+    const meta = state.values.get("meta");
+    assert.equal(meta.lastAlertBatchId, "cf-101");
+    assert.deepEqual(new Set(meta.lastAlertSkuKeys), new Set(["skuId:1001", "skuId:1002"]));
   } finally {
     globalThis.fetch = originalFetch;
   }
