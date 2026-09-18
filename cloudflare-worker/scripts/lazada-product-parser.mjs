@@ -17,6 +17,29 @@ function parseBooleanSignal(value) {
   return null;
 }
 
+function iconStockSignal(item) {
+  if (!Array.isArray(item?.icons)) return null;
+  for (const icon of item.icons) {
+    if (!icon || typeof icon !== "object") continue;
+    const bizType = String(icon.bizType || "").trim().toLowerCase();
+    if (["outofstock", "out_of_stock", "soldout", "sold_out"].includes(bizType)) return false;
+  }
+  return null;
+}
+
+function queryStringStockSignal(item) {
+  const raw = item?.querystring ?? item?.queryString ?? "";
+  if (!raw) return null;
+  try {
+    const params = new URLSearchParams(String(raw).replace(/^\?/, ""));
+    if (!params.has("stock")) return null;
+    const value = Number(params.get("stock"));
+    return Number.isFinite(value) ? value > 0 : null;
+  } catch {
+    return null;
+  }
+}
+
 function inferInStock(item) {
   for (const key of ["inStock", "isAvailable", "available"]) {
     if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
@@ -31,21 +54,29 @@ function inferInStock(item) {
   }
 
   for (const key of ["stock", "stockCount", "quantity", "availableStock"]) {
-    if (Object.prototype.hasOwnProperty.call(item, key)) {
-      const raw = item[key];
-      if (raw === null || raw === undefined || String(raw).trim() === "") continue;
-      const value = Number(raw);
-      if (Number.isFinite(value)) return value > 0;
-    }
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+    const raw = item[key];
+    if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value > 0;
   }
 
   const availability = String(item.availability || item.stockStatus || item.status || "").toLowerCase();
   if (["out of stock", "sold out", "unavailable"].some((value) => availability.includes(value))) return false;
   if (["in stock", "available"].some((value) => availability.includes(value))) return true;
+
+  const iconSignal = iconStockSignal(item);
+  const querySignal = queryStringStockSignal(item);
+  if (iconSignal !== null && querySignal !== null) {
+    return iconSignal === querySignal ? iconSignal : null;
+  }
+  if (iconSignal !== null) return iconSignal;
+  if (querySignal !== null) return querySignal;
+
   return null;
 }
 
-function normalizeProduct(item, source = {}) {
+function normalizeProduct(item) {
   let itemUrl = item.itemUrl || item.url || item.productUrl || item.pdpUrl || item.mobileUrl || "";
   if (typeof itemUrl === "string" && itemUrl.startsWith("//")) itemUrl = `https:${itemUrl}`;
 
@@ -57,16 +88,11 @@ function normalizeProduct(item, source = {}) {
     price = null;
   }
 
-  const explicitStock = inferInStock(item);
-  const inStock = explicitStock === null && source.listedMeansInStock === true
-    ? true
-    : explicitStock;
-
   return {
     name: String(item.name || item.title || item.productName || ""),
     price,
     priceShow: String(item.priceShow || item.priceFormatted || item.originalPriceShow || item.salePriceShow || ""),
-    inStock,
+    inStock: inferInStock(item),
     sold: String(item.itemSoldCntShow || item.itemSoldCnt || item.sold || ""),
     url: itemUrl || null,
     image: item.image || item.imageUrl || null,
@@ -178,7 +204,7 @@ export function parseProducts(sourceBody, source) {
   const normalizedGroups = [];
   for (const items of candidateItemLists(payload)) {
     const normalized = items
-      .map((item) => normalizeProduct(item, source))
+      .map(normalizeProduct)
       .filter((product) => product.name && (product.url || product.skuId || product.sku));
     if (normalized.length) normalizedGroups.push(normalized);
   }
