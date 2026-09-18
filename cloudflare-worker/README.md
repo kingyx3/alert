@@ -1,148 +1,105 @@
-# Lazada Pokémon TCG Cloudflare monitor
+# Lazada Pokémon TCG restock monitor
 
-Cloudflare Worker + Durable Object restock monitor. The Durable Object targets a 5-second alarm loop only between **08:00 and 24:00 Singapore time (SGT, UTC+8)**. A Cloudflare Cron Trigger runs every five minutes during that same active window as a watchdog/bootstrap path. No background polling is scheduled from 00:00 through 07:59 SGT.
+Cloudflare Worker + Durable Object + GitHub Actions monitor for Lazada Pokémon TCG inventory.
 
-The monitor is deliberately **block-aware, not block-evasive**: HTTP 403/429 or anti-bot challenge pages are logged, state is preserved, and checks back off. It does not rotate identities, solve CAPTCHAs, spoof browser fingerprints, use proxies, or otherwise bypass access controls.
+## Production architecture
 
-## Detection behavior
+- Cloudflare Cron runs once per minute during **08:00-19:59 Singapore time (SGT)**.
+- Each Cron tick dispatches six GitHub Actions probe batches at 10-second offsets: `0, 10, 20, 30, 40, 50` seconds.
+- Each GitHub Actions batch launches four independent Playwright probes against the two trusted Lazada listing endpoints. Rescue runners are used when the primary wave cannot produce a clean snapshot.
+- Successful probes POST normalized snapshots to the Cloudflare Worker, where a Durable Object serializes inventory state and alert decisions.
+- GitHub's `*/5` schedule is a delayed fallback only; it runs browsers when the Worker has not accepted a fresh snapshot recently.
+- Production Telegram alerts are suppressed outside **08:00-20:00 SGT**.
 
-- First successful fetch creates a baseline and sends no alert by default.
-- A Telegram alert is sent when a known SKU transitions from unavailable to available, or when a newly discovered TCG SKU is already available after baseline initialization.
-- Missing SKUs must be absent for two consecutive successful snapshots before being marked unavailable, reducing false restock alerts caused by transient/incomplete payloads.
-- Failed, blocked, or unparseable source responses never advance inventory state.
-- The normal target interval is 5 seconds while checks are healthy and the current time is within 08:00-24:00 SGT.
-- At midnight SGT, the monitor stops scheduling Durable Object alarms. The active-hours Cron Trigger bootstraps the monitor again at or just after 08:00 SGT.
-- HTTP 403/429 and challenge responses trigger a 5-minute backoff instead of retries intended to evade access controls; ordinary failures use exponential backoff.
+The monitor is block-aware rather than block-evasive. HTTP 403/429 responses and anti-bot challenges are treated as failures; the system does not solve CAPTCHAs, rotate identities, or bypass access controls.
 
-## Polling cadence and active hours
+## Stock detection
 
-`CHECK_INTERVAL_SECONDS` defaults to `5` in `wrangler.toml`. The deployment entrypoint allows values down to 5 seconds while preserving the existing block/error backoff logic.
+`SCRAPING_URL` and `SCRAPING_URL_2` return Lazada `listItems`. **Listing presence is not itself an availability signal**: Lazada keeps sold-out products in the listing.
 
-The monitor intentionally runs only **16 hours per day: 08:00-24:00 SGT**. Singapore is UTC+8 year-round, and Cloudflare Cron Triggers run in UTC, so the watchdog expression is:
+Stock is determined in this order:
 
-```text
-*/5 0-15 * * *
-```
+1. explicit availability fields such as `inStock`, `isAvailable`, or `available`;
+2. inverse sold-out fields such as `soldOut`, `isSoldOut`, `outOfStock`, or `isOutOfStock`;
+3. numeric quantity fields such as `stock`, `stockCount`, `quantity`, or `availableStock`;
+4. availability/status text;
+5. Lazada's `icons[].bizType = "outofstock"` marker and the listing `querystring` `stock=` value as defensive fallbacks.
 
-That means every five minutes from 00:00 through 15:59 UTC, equivalent to 08:00 through 23:59 SGT. The Cron Trigger is only a watchdog; the Durable Object alarms perform the 5-second checks between watchdog runs.
+If fallback signals conflict, stock is left unknown rather than risking a false in-stock alert. If no stock signal exists at all, stock remains unknown. Explicit fields always take precedence over fallback metadata.
 
-At a continuously healthy 5-second cadence, limiting operation to 16 hours reduces the theoretical source-check count from about **17,280/day** to about **11,520/day**, a one-third reduction. The watchdog adds at most 192 scheduled runs per day instead of 1,440 with an every-minute 24-hour Cron.
+The production payloads supplied on 2026-09-18 contained `inStock: false`, an `outofstock` icon, and `stock=0` for the listed products, so those items should correctly be treated as unavailable even though they remain present in `listItems`.
 
-Cloudflare Durable Object alarms support millisecond-granularity scheduling and normally execute close to their requested time, but they are not a hard real-time scheduler: maintenance or failover can delay an alarm. Short polling intervals also increase invocation cost and source-request volume, so monitor Cloudflare usage and Lazada responses for rate limiting or blocking.
+## Alert behavior
 
-Outside the active window, `/healthz` reports `status: "ok"` with `mode: "sleeping"` when there is no outstanding failure. `sleepingUntil` shows the next 08:00 SGT wake time. This avoids treating the intentional overnight pause as an unhealthy/stale monitor.
+- The first accepted snapshot establishes the inventory baseline. `ALERT_ON_FIRST_RUN=true` may alert for products already available on that first snapshot.
+- Unavailable → available transitions are alerted immediately during the active window.
+- The dispatcher also supports the existing persistent in-stock notification behavior across later Cloudflare root batches while preventing duplicate alerts from redundant runners within the same root batch.
+- Alert delivery is serialized with snapshot ingestion, and SKU/root-batch deduplication prevents redundant runners from sending duplicate notifications.
+- Missing SKUs require two consecutive complete snapshots before being marked unavailable (`MISSING_CONFIRMATIONS=2`). Partial fast-path snapshots cannot mark unseen SKUs missing.
+- Failed, blocked, unparseable, or failed-Telegram snapshots preserve retryable inventory state.
 
-## GitHub production environment setup
+## Runtime configuration
 
-The deployment workflow uses the GitHub Environment named `production`.
+`wrangler.toml` is the production source of non-secret runtime configuration. Key values currently include:
 
-In this repository, go to:
+- `EXTERNAL_SNAPSHOT_MODE=true`
+- `CHECK_INTERVAL_SECONDS=10`
+- `EXTERNAL_HEALTH_STALE_SECONDS=300`
+- `MISSING_CONFIRMATIONS=2`
+- `ALERT_ON_FIRST_RUN=true`
+- `ALERT_WINDOW_ENFORCED=true`
+- `TCG_KEYWORDS=pokemon,pokémon,tcg,trading card`
 
-**Settings → Environments → production**
+The Cloudflare Cron expression is `*/1 0-11 * * *`, which maps to 08:00-19:59 SGT because Cloudflare Cron uses UTC.
 
-Create the following values under that environment.
+## Required production values
 
-### Environment secrets
+Configure the GitHub `production` Environment with:
 
-| Name | What it is | Where to get it |
-| --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare credential used by GitHub Actions to deploy/update the Worker. Treat it like a password. | Cloudflare Dashboard → **Account API tokens** → **Create Token** → choose/customize **Edit Cloudflare Workers**. Scope the token to only the Cloudflare account used by this monitor. Official guide: https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/ |
-| `TELEGRAM_BOT_TOKEN` | Credential for the Telegram bot that sends restock alerts. | In Telegram, open the verified `@BotFather`, run `/newbot`, complete setup, and copy the token BotFather returns. Official guide: https://core.telegram.org/bots/tutorial |
-| `DEBUG_TOKEN` | Bearer token protecting `GET /debug` and `POST /check`. This is generated by you. | Generate a long random token locally, for example: `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Do not reuse a password or API token. |
+### Secrets
 
-### Environment variables
+- `CLOUDFLARE_API_TOKEN`
+- `TELEGRAM_BOT_TOKEN`
+- `DEBUG_TOKEN`
+- `GITHUB_ACTIONS_TOKEN` if the deployment workflow manages the dispatch token as a secret
 
-| Name | What it is | Where to get it |
-| --- | --- | --- |
-| `CLOUDFLARE_ACCOUNT_ID` | Identifier of the Cloudflare account where the Worker is deployed. It is not an authentication credential. | Cloudflare Dashboard → **Workers & Pages** → **Account Details** → copy **Account ID**. You can also press `Ctrl/Cmd + K` in the dashboard and search for **Copy account ID**. Official guide: https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/ |
-| `LAZADA_URL` | Public Lazada page/product-feed URL the monitor fetches. | Use the exact public Lazada source URL you want monitored. If migrating from the old GitHub Actions scraper, use the same source previously stored as `SCRAPING_URL`. If the URL contains a signed credential, session token, or other private query parameter, store `LAZADA_URL` as a GitHub **secret** instead and update the workflow reference accordingly. |
-| `TELEGRAM_CHANNEL_ID` | Destination chat/channel for alerts. A public channel username such as `@my_channel` is supported, as is a numeric chat/channel ID. | See **Finding the Telegram destination** below. Telegram `sendMessage` accepts either a numeric chat ID or a public channel username. Official Bot API: https://core.telegram.org/bots/api#sendmessage |
+### Variables / runtime configuration
 
-Cloudflare's generic CI documentation shows both its API token and account ID as CI secrets. This repository deliberately stores `CLOUDFLARE_ACCOUNT_ID` as a GitHub Variable because the account ID identifies the account but does not authenticate to it. The API token remains a Secret.
+- `CLOUDFLARE_ACCOUNT_ID`
+- `TELEGRAM_CHANNEL_ID`
+- `SCRAPING_URL`
+- `SCRAPING_URL_2`
 
-The workflow also takes `LAZADA_URL` and `TELEGRAM_CHANNEL_ID` from GitHub Variables but uploads them to Cloudflare as encrypted Worker secret bindings. That keeps runtime configuration out of `wrangler.toml` while avoiding unnecessary masking inside GitHub.
+The Worker must also receive `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `DEBUG_TOKEN`, and the GitHub dispatch credential as runtime bindings/secrets as required by the deployment workflow.
 
-## Creating the Telegram destination
+## Health and diagnostics
 
-### 1. Create the bot
+- `GET /healthz` — public health status. During the active window, a snapshot older than the configured stale threshold is degraded. Outside the window the service reports sleeping/healthy behavior rather than treating the intentional pause as an outage.
+- `GET /schedulerz` — scheduler configuration, active window, dispatch cadence, target repository/workflow, and fallback mode.
+- `GET /debug` — detailed Durable Object state and recent events; requires `Authorization: Bearer <DEBUG_TOKEN>`.
+- `POST /check` — protected manual check endpoint. In external snapshot mode the Worker itself does not scrape Lazada; production source reads come from GitHub Actions Playwright probes.
+- GitHub Actions artifacts contain `probe.json` diagnostics for each runner, including product counts, block markers, ingestion status, and timings.
 
-1. Open the verified `@BotFather` account in Telegram.
-2. Run `/newbot` and follow the prompts.
-3. Save the returned token as the GitHub `production` Environment secret `TELEGRAM_BOT_TOKEN`.
-4. Treat the token like a password; anyone with it can control the bot.
+Useful events include `external.snapshot.accepted`, `external.snapshot.superseded`, `external.snapshot.duplicate`, `external.snapshot.telegram_error`, `telegram.sent`, and GitHub dispatch logs.
 
-Telegram's official bot tutorial documents this flow: https://core.telegram.org/bots/tutorial
+## Local validation
 
-### 2. If alerts go to a public Telegram channel
-
-1. Add the bot to the channel as an administrator.
-2. Grant it permission to post messages.
-3. Set `TELEGRAM_CHANNEL_ID` to the channel username, for example `@pokemon_restock_alerts`.
-
-This is the simplest option because Telegram's `sendMessage` endpoint accepts a target channel username directly.
-
-### 3. If alerts go to a private channel or numeric chat ID
-
-Add the bot to the destination first. For a channel, make it an administrator with permission to post messages. Then generate an update the bot can see — for example, publish a channel post after adding the bot.
-
-From a trusted local terminal, temporarily set the bot token and query Telegram updates:
+From `cloudflare-worker/` run:
 
 ```bash
-export BOT_TOKEN='paste-token-here'
-curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates"
+npm install
+npm run check
 ```
 
-Look for:
-
-- `channel_post.chat.id` for a channel, or
-- `message.chat.id` for a normal chat/group.
-
-Store that value as `TELEGRAM_CHANNEL_ID`.
-
-Do not paste the bot token into tickets, PR comments, shared terminals, or logs. Telegram notes that `getUpdates` is unavailable while the same bot has an outgoing webhook configured. Bot API reference: https://core.telegram.org/bots/api#getupdates
-
-## Creating the Cloudflare deployment token
-
-Cloudflare's current GitHub Actions guide recommends creating a scoped API token for non-interactive Wrangler deployments:
-
-1. Open the Cloudflare Dashboard.
-2. Go to **Account API tokens**.
-3. Select **Create Token**.
-4. Choose/customize **Edit Cloudflare Workers**.
-5. Restrict the token to the single Cloudflare account that should host this Worker.
-6. Create the token and save its value immediately as the GitHub `production` Environment secret `CLOUDFLARE_API_TOKEN`.
-7. Copy the target account's Account ID into the GitHub `production` Environment variable `CLOUDFLARE_ACCOUNT_ID`.
-
-Official Cloudflare CI instructions: https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/
+`npm run check` performs JavaScript syntax checks, unit/regression tests, and a Wrangler dry-run deployment. The stock regression suite covers the current Lazada `listItems` sold-out schema, verifies that listing presence alone stays unknown, checks the out-of-stock badge and `stock=` fallbacks, and ensures conflicting fallback signals cannot create a false positive.
 
 ## Deployment
 
-Once the six production values above exist, merge the PR to `main`. `.github/workflows/deploy-cloudflare-worker.yml` will:
+Changes merged to `main` are deployed through `.github/workflows/deploy-cloudflare-worker.yml`. The production Worker entrypoint is `src/dispatcher-entry.js`.
 
-1. validate the Worker JavaScript and Wrangler configuration,
-2. authenticate to Cloudflare using `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`,
-3. deploy the Worker and Durable Object migration,
-4. sync `LAZADA_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, and `DEBUG_TOKEN` to Cloudflare runtime secret bindings.
+After deployment, verify:
 
-The workflow can also be run manually with **Actions → Cloudflare Lazada TCG Monitor → Run workflow** after it exists on `main`.
-
-## Diagnostics
-
-- `GET /healthz` — public minimal health status. During active hours it reports `mode: "active"`; overnight it reports `mode: "sleeping"` and `sleepingUntil`.
-- `GET /debug` — detailed state, recent structured events, source metadata, tracked SKUs, and the active-window configuration. Requires `Authorization: Bearer <DEBUG_TOKEN>`.
-- `POST /check` — force an immediate check during the active window. Outside 08:00-24:00 SGT it returns a skipped/sleeping result instead of starting the overnight polling loop. Requires the same bearer token.
-- Cloudflare logs are structured JSON and include run IDs and events such as `source.fetch.ok`, `source.blocked`, `stock.diff`, `telegram.sent`, `alarm.scheduled`, `monitor.sleep.scheduled`, and `monitor.sleeping`.
-- `npm run tail` streams Worker logs via Wrangler.
-
-Example authenticated debug calls after deployment:
-
-```bash
-export WORKER_URL='https://<your-worker>.<your-subdomain>.workers.dev'
-export DEBUG_TOKEN='your-debug-token'
-
-curl -s "${WORKER_URL}/healthz"
-curl -s -H "Authorization: Bearer ${DEBUG_TOKEN}" "${WORKER_URL}/debug"
-curl -s -X POST -H "Authorization: Bearer ${DEBUG_TOKEN}" "${WORKER_URL}/check"
-```
-
-If a check is blocked or fails, use `/debug` together with Cloudflare structured logs. The monitor preserves its last valid inventory state on source failures so a blocked/partial response does not create a false restock transition.
+1. `/schedulerz` reports the 10-second cadence and `08:00-20:00` SGT active window.
+2. `/healthz` shows a recent `lastSuccessAt` during active hours.
+3. Recent `Lazada Playwright Monitor` runs show at least one clean runner with `ingestOk: true`.
+4. A known `inStock: false` item remains unavailable even though it is present in `listItems`, and a controlled false→true stock transition is recognized and alerted.

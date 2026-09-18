@@ -16,8 +16,11 @@ const tcgKeywords = String(process.env.TCG_KEYWORDS || "pokemon,pokémon,tcg,tra
   .map(normalizeSearchText)
   .filter(Boolean);
 
-// SCRAPING_URL_3 is intentionally disabled for now because its stock signal is
-// not reliable enough for alerting. Keep the monitor on the two trusted sources.
+// SCRAPING_URL and SCRAPING_URL_2 are the two trusted Lazada listing feeds.
+// Listing presence alone is NOT a stock signal: Lazada keeps sold-out products in
+// listItems. Stock is derived from explicit fields first, with the out-of-stock
+// badge and query-string stock value used only as defensive fallbacks.
+// SCRAPING_URL_3 remains disabled because its stock semantics are not trusted.
 export const scrapingSources = [
   {
     name: "SCRAPING_URL",

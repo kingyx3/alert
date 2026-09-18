@@ -17,26 +17,62 @@ function parseBooleanSignal(value) {
   return null;
 }
 
+function iconStockSignal(item) {
+  if (!Array.isArray(item?.icons)) return null;
+  for (const icon of item.icons) {
+    if (!icon || typeof icon !== "object") continue;
+    const bizType = String(icon.bizType || "").trim().toLowerCase();
+    if (["outofstock", "out_of_stock", "soldout", "sold_out"].includes(bizType)) return false;
+  }
+  return null;
+}
+
+function queryStringStockSignal(item) {
+  const raw = item?.querystring ?? item?.queryString ?? "";
+  if (!raw) return null;
+  try {
+    const params = new URLSearchParams(String(raw).replace(/^\?/, ""));
+    if (!params.has("stock")) return null;
+    const value = Number(params.get("stock"));
+    return Number.isFinite(value) ? value > 0 : null;
+  } catch {
+    return null;
+  }
+}
+
 function inferInStock(item) {
-  if (Object.prototype.hasOwnProperty.call(item, "inStock")) {
-    const inStock = parseBooleanSignal(item.inStock);
-    if (inStock !== null) return inStock;
+  for (const key of ["inStock", "isAvailable", "available"]) {
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+    const signal = parseBooleanSignal(item[key]);
+    if (signal !== null) return signal;
   }
-  if (Object.prototype.hasOwnProperty.call(item, "soldOut")) {
-    const soldOut = parseBooleanSignal(item.soldOut);
-    if (soldOut !== null) return !soldOut;
+
+  for (const key of ["soldOut", "isSoldOut", "outOfStock", "isOutOfStock"]) {
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+    const signal = parseBooleanSignal(item[key]);
+    if (signal !== null) return !signal;
   }
+
   for (const key of ["stock", "stockCount", "quantity", "availableStock"]) {
-    if (Object.prototype.hasOwnProperty.call(item, key)) {
-      const raw = item[key];
-      if (raw === null || raw === undefined || String(raw).trim() === "") continue;
-      const value = Number(raw);
-      if (Number.isFinite(value)) return value > 0;
-    }
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+    const raw = item[key];
+    if (raw === null || raw === undefined || String(raw).trim() === "") continue;
+    const value = Number(raw);
+    if (Number.isFinite(value)) return value > 0;
   }
+
   const availability = String(item.availability || item.stockStatus || item.status || "").toLowerCase();
   if (["out of stock", "sold out", "unavailable"].some((value) => availability.includes(value))) return false;
   if (["in stock", "available"].some((value) => availability.includes(value))) return true;
+
+  const iconSignal = iconStockSignal(item);
+  const querySignal = queryStringStockSignal(item);
+  if (iconSignal !== null && querySignal !== null) {
+    return iconSignal === querySignal ? iconSignal : null;
+  }
+  if (iconSignal !== null) return iconSignal;
+  if (querySignal !== null) return querySignal;
+
   return null;
 }
 
