@@ -15,20 +15,28 @@ The monitor is block-aware rather than block-evasive. HTTP 403/429 responses and
 
 ## Stock detection
 
-The trusted Lazada endpoints are product-listing feeds. Lazada frequently omits an explicit `inStock` field for products that appear in these lists. For the two configured trusted feeds, listing presence is therefore treated as an in-stock fallback **only when no explicit stock signal exists**.
+`SCRAPING_URL` and `SCRAPING_URL_2` return Lazada `listItems`. **Listing presence is not itself an availability signal**: Lazada keeps sold-out products in the listing.
 
-Explicit signals always take precedence. Fields such as `inStock`, `isAvailable`, `soldOut`, `isSoldOut`, `outOfStock`, quantity fields, and availability/status strings can explicitly mark a product available or unavailable. An explicit sold-out or zero-stock signal is never overridden by listing presence.
+Stock is determined in this order:
 
-Unknown stock remains unknown for sources that are not configured with the trusted listing fallback.
+1. explicit availability fields such as `inStock`, `isAvailable`, or `available`;
+2. inverse sold-out fields such as `soldOut`, `isSoldOut`, `outOfStock`, or `isOutOfStock`;
+3. numeric quantity fields such as `stock`, `stockCount`, `quantity`, or `availableStock`;
+4. availability/status text;
+5. Lazada's `icons[].bizType = "outofstock"` marker and the listing `querystring` `stock=` value as defensive fallbacks.
+
+If fallback signals conflict, stock is left unknown rather than risking a false in-stock alert. If no stock signal exists at all, stock remains unknown. Explicit fields always take precedence over fallback metadata.
+
+The production payloads supplied on 2026-09-18 contained `inStock: false`, an `outofstock` icon, and `stock=0` for the listed products, so those items should correctly be treated as unavailable even though they remain present in `listItems`.
 
 ## Alert behavior
 
 - The first accepted snapshot establishes the inventory baseline. `ALERT_ON_FIRST_RUN=true` may alert for products already available on that first snapshot.
-- After initialization, Telegram alerts are sent only for genuine **unavailable → available** transitions or newly discovered available SKUs.
-- An already-available SKU appearing in later 10-second dispatch batches does **not** generate repeated "still in stock" alerts.
-- Alert delivery is serialized with snapshot ingestion, and SKU/root-batch deduplication prevents redundant runners from sending duplicate transition alerts.
+- Unavailable → available transitions are alerted immediately during the active window.
+- The dispatcher also supports the existing persistent in-stock notification behavior across later Cloudflare root batches while preventing duplicate alerts from redundant runners within the same root batch.
+- Alert delivery is serialized with snapshot ingestion, and SKU/root-batch deduplication prevents redundant runners from sending duplicate notifications.
 - Missing SKUs require two consecutive complete snapshots before being marked unavailable (`MISSING_CONFIRMATIONS=2`). Partial fast-path snapshots cannot mark unseen SKUs missing.
-- Failed, blocked, unparseable, or failed-Telegram snapshots do not advance inventory state in a way that loses a retryable transition.
+- Failed, blocked, unparseable, or failed-Telegram snapshots preserve retryable inventory state.
 
 ## Runtime configuration
 
@@ -83,7 +91,7 @@ npm install
 npm run check
 ```
 
-`npm run check` performs JavaScript syntax checks, unit/regression tests, and a Wrangler dry-run deployment. The regression suite specifically covers Lazada listing items with omitted stock fields and verifies that explicit sold-out/zero-quantity signals override the listing-presence fallback.
+`npm run check` performs JavaScript syntax checks, unit/regression tests, and a Wrangler dry-run deployment. The stock regression suite covers the current Lazada `listItems` sold-out schema, verifies that listing presence alone stays unknown, checks the out-of-stock badge and `stock=` fallbacks, and ensures conflicting fallback signals cannot create a false positive.
 
 ## Deployment
 
@@ -94,4 +102,4 @@ After deployment, verify:
 1. `/schedulerz` reports the 10-second cadence and `08:00-20:00` SGT active window.
 2. `/healthz` shows a recent `lastSuccessAt` during active hours.
 3. Recent `Lazada Playwright Monitor` runs show at least one clean runner with `ingestOk: true`.
-4. A controlled unavailable→available fixture or test snapshot produces one Telegram alert, while later batches with the same SKU still available do not produce another.
+4. A known `inStock: false` item remains unavailable even though it is present in `listItems`, and a controlled false→true stock transition is recognized and alerted.
