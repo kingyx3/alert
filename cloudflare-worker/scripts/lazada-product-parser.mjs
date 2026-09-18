@@ -18,14 +18,18 @@ function parseBooleanSignal(value) {
 }
 
 function inferInStock(item) {
-  if (Object.prototype.hasOwnProperty.call(item, "inStock")) {
-    const inStock = parseBooleanSignal(item.inStock);
-    if (inStock !== null) return inStock;
+  for (const key of ["inStock", "isAvailable", "available"]) {
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+    const signal = parseBooleanSignal(item[key]);
+    if (signal !== null) return signal;
   }
-  if (Object.prototype.hasOwnProperty.call(item, "soldOut")) {
-    const soldOut = parseBooleanSignal(item.soldOut);
-    if (soldOut !== null) return !soldOut;
+
+  for (const key of ["soldOut", "isSoldOut", "outOfStock", "isOutOfStock"]) {
+    if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+    const signal = parseBooleanSignal(item[key]);
+    if (signal !== null) return !signal;
   }
+
   for (const key of ["stock", "stockCount", "quantity", "availableStock"]) {
     if (Object.prototype.hasOwnProperty.call(item, key)) {
       const raw = item[key];
@@ -34,13 +38,14 @@ function inferInStock(item) {
       if (Number.isFinite(value)) return value > 0;
     }
   }
+
   const availability = String(item.availability || item.stockStatus || item.status || "").toLowerCase();
   if (["out of stock", "sold out", "unavailable"].some((value) => availability.includes(value))) return false;
   if (["in stock", "available"].some((value) => availability.includes(value))) return true;
   return null;
 }
 
-function normalizeProduct(item) {
+function normalizeProduct(item, source = {}) {
   let itemUrl = item.itemUrl || item.url || item.productUrl || item.pdpUrl || item.mobileUrl || "";
   if (typeof itemUrl === "string" && itemUrl.startsWith("//")) itemUrl = `https:${itemUrl}`;
 
@@ -52,11 +57,16 @@ function normalizeProduct(item) {
     price = null;
   }
 
+  const explicitStock = inferInStock(item);
+  const inStock = explicitStock === null && source.listedMeansInStock === true
+    ? true
+    : explicitStock;
+
   return {
     name: String(item.name || item.title || item.productName || ""),
     price,
     priceShow: String(item.priceShow || item.priceFormatted || item.originalPriceShow || item.salePriceShow || ""),
-    inStock: inferInStock(item),
+    inStock,
     sold: String(item.itemSoldCntShow || item.itemSoldCnt || item.sold || ""),
     url: itemUrl || null,
     image: item.image || item.imageUrl || null,
@@ -168,7 +178,7 @@ export function parseProducts(sourceBody, source) {
   const normalizedGroups = [];
   for (const items of candidateItemLists(payload)) {
     const normalized = items
-      .map(normalizeProduct)
+      .map((item) => normalizeProduct(item, source))
       .filter((product) => product.name && (product.url || product.skuId || product.sku));
     if (normalized.length) normalizedGroups.push(normalized);
   }
