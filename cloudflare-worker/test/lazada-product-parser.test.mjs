@@ -49,6 +49,50 @@ test("trusted source mode still selects the largest candidate list", () => {
   );
 });
 
+test("seller allowlist keeps only the official Pokemon Lazada shop", () => {
+  const parsed = parseProducts(JSON.stringify({
+    mods: {
+      listItems: [
+        {
+          name: "Pokémon TCG Official Product",
+          itemId: "OFFICIAL-1",
+          inStock: true,
+          sellerId: "1628720011",
+          sellerName: "Pokémon Store Online Singapore",
+        },
+        {
+          name: "Pokémon TCG Third Party Product",
+          itemId: "THIRD-PARTY-1",
+          inStock: true,
+          sellerId: "999999",
+          sellerName: "Pokémon Store Online Singapore",
+        },
+        {
+          name: "Pokémon TCG Official Product Without Seller ID",
+          itemId: "OFFICIAL-2",
+          inStock: true,
+          sellerName: "Pokemon Store Online Singapore",
+        },
+        {
+          name: "Pokémon TCG Unknown Seller Product",
+          itemId: "UNKNOWN-1",
+          inStock: true,
+        },
+      ],
+    },
+  }), {
+    collectAllLists: false,
+    keywords: ["pokemon", "tcg"],
+    sellerIds: ["1628720011"],
+    sellerNames: ["pokemon store online singapore"],
+  });
+
+  assert.deepEqual(
+    parsed.tcgProducts.map((product) => product.skuId),
+    ["OFFICIAL-1", "OFFICIAL-2"],
+  );
+});
+
 test("ambiguous explicit stock fields fall through to stronger quantity/status signals", () => {
   const parsed = parseProducts(JSON.stringify({
     data: {

@@ -190,6 +190,23 @@ function* candidateItemLists(node, depth = 0) {
   }
 }
 
+function matchesAllowedSeller(product, source) {
+  const sellerIds = Array.isArray(source.sellerIds)
+    ? source.sellerIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const sellerNames = Array.isArray(source.sellerNames)
+    ? source.sellerNames.map(normalizeSearchText).filter(Boolean)
+    : [];
+
+  if (sellerIds.length === 0 && sellerNames.length === 0) return true;
+
+  const sellerId = String(product.sellerId || "").trim();
+  if (sellerId) return sellerIds.includes(sellerId);
+
+  const sellerName = normalizeSearchText(product.sellerName);
+  return Boolean(sellerName) && sellerNames.includes(sellerName);
+}
+
 export function parseProducts(sourceBody, source) {
   let payload = null;
   try {
@@ -215,7 +232,8 @@ export function parseProducts(sourceBody, source) {
 
   const tcgProducts = products.filter((product) => {
     const name = normalizeSearchText(product.name);
-    return source.keywords.some((keyword) => name.includes(keyword));
+    const matchesKeyword = source.keywords.some((keyword) => name.includes(keyword));
+    return matchesKeyword && matchesAllowedSeller(product, source);
   });
 
   return { payloadFound: true, products, tcgProducts };

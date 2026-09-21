@@ -16,10 +16,21 @@ const tcgKeywords = String(process.env.TCG_KEYWORDS || "pokemon,pokémon,tcg,tra
   .map(normalizeSearchText)
   .filter(Boolean);
 
+const officialSellerIds = String(process.env.LAZADA_OFFICIAL_SELLER_IDS || "1628720011")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+const officialSellerNames = String(process.env.LAZADA_OFFICIAL_SELLER_NAMES || "Pokémon Store Online Singapore")
+  .split(",")
+  .map(normalizeSearchText)
+  .filter(Boolean);
+
 // SCRAPING_URL and SCRAPING_URL_2 are the two trusted Lazada listing feeds.
 // Listing presence alone is NOT a stock signal: Lazada keeps sold-out products in
 // listItems. Stock is derived from explicit fields first, with the out-of-stock
 // badge and query-string stock value used only as defensive fallbacks.
+// Products are restricted to the official Pokémon Store Online Singapore seller.
 // SCRAPING_URL_3 remains disabled because its stock semantics are not trusted.
 export const scrapingSources = [
   {
@@ -27,12 +38,16 @@ export const scrapingSources = [
     url: String(process.env.SCRAPING_URL || "").trim(),
     collectAllLists: false,
     keywords: tcgKeywords,
+    sellerIds: officialSellerIds,
+    sellerNames: officialSellerNames,
   },
   {
     name: "SCRAPING_URL_2",
     url: String(process.env.SCRAPING_URL_2 || "").trim(),
     collectAllLists: false,
     keywords: tcgKeywords,
+    sellerIds: officialSellerIds,
+    sellerNames: officialSellerNames,
   },
 ];
 
