@@ -3,12 +3,8 @@ name: Lazada Shipping POST (2-minute cadence)
 on:
   workflow_dispatch:
     inputs:
-      item_id:
-        description: Lazada item ID override
-        required: false
-        type: string
-      sku_id:
-        description: Lazada SKU ID override
+      pairs_json:
+        description: Optional JSON array override of [itemId, skuId] pairs
         required: false
         type: string
       quantity:
@@ -32,8 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     env:
-      LAZADA_ITEM_ID: ${{ inputs.item_id || vars.LAZADA_ITEM_ID || '13822368851' }}
-      LAZADA_SKU_ID: ${{ inputs.sku_id || vars.LAZADA_SKU_ID || '124830542173' }}
+      # Repository variable format example:
+      # [["13822368851","124830542173"],["123456789","987654321"]]
+      LAZADA_ITEM_SKU_PAIRS: ${{ inputs.pairs_json || vars.LAZADA_ITEM_SKU_PAIRS || '[["13822368851","124830542173"]]' }}
       LAZADA_QUANTITY: ${{ inputs.quantity || vars.LAZADA_QUANTITY || '1' }}
       LAZADA_COOKIE: ${{ secrets.LAZADA_COOKIE }}
 
@@ -44,19 +41,20 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Validate secret
+      - name: Validate configuration
         run: |
           set -euo pipefail
           if [[ -z "${LAZADA_COOKIE:-}" ]]; then
             echo "Missing repository secret LAZADA_COOKIE." >&2
             exit 2
           fi
+          node -e 'const v=JSON.parse(process.env.LAZADA_ITEM_SKU_PAIRS); if (!Array.isArray(v) || !v.length || !v.every(p => Array.isArray(p) && p.length === 2)) process.exit(2)'
 
-      - name: POST shipping request every 2 minutes
+      - name: POST all item/SKU pairs every 2 minutes
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            echo "=== Lazada shipping POST ${attempt}/3 at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+            echo "=== Lazada shipping POST batch ${attempt}/3 at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
             node lazada-checkout-post/post-shipping.mjs
 
             if [[ "${attempt}" -lt 3 ]]; then
