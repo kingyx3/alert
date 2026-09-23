@@ -95,9 +95,13 @@ This is deliberate. Do not add CAPTCHA solving, browser-fingerprint spoofing, pr
 
 ## Current workflow scheduling
 
-GitHub Actions does not support a native 2-minute cron interval. The current workflow schedules a job every 6 minutes and performs three executions within that job, separated by 120 seconds.
+The workflow is active only from **13:00 through 13:59 Asia/Singapore (SGT)** each day.
 
-GitHub scheduled workflows can also be delayed by platform load, so the timing should be treated as approximate rather than real-time.
+GitHub Actions supports a minimum scheduled interval of 5 minutes, so the workflow starts every 5 minutes during that hour and performs up to five executions inside each job, separated by 60 seconds. This produces an approximately once-per-minute cadence across the 1pm hour.
+
+The workflow also checks the current Singapore hour before every execution and stops immediately once the time is no longer within 13:00-13:59 SGT. This prevents delayed GitHub runners from intentionally continuing into the 2pm hour.
+
+GitHub scheduled workflows can still start late due to platform load, so individual execution times are approximate rather than guaranteed to occur exactly on each minute boundary.
 
 ## Updating products
 
