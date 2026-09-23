@@ -16,8 +16,10 @@ if (!Number.isInteger(quantity) || quantity < 1) {
 let pairs;
 try {
   pairs = JSON.parse(rawPairs);
-} catch (error) {
-  console.error("LAZADA_ITEM_SKU_PAIRS must be valid JSON, e.g. [[\"13822368851\",\"124830542173\"]].");
+} catch {
+  console.error(
+    'LAZADA_ITEM_SKU_PAIRS must be valid JSON, e.g. [["13822368851","124830542173"]].',
+  );
   process.exit(2);
 }
 
@@ -38,6 +40,8 @@ if (
   process.exit(2);
 }
 
+class StopBatchError extends Error {}
+
 async function postPair(itemId, skuId) {
   const url = new URL("https://checkout.lazada.sg/shipping");
   url.searchParams.set("spm", spm);
@@ -53,11 +57,7 @@ async function postPair(itemId, skuId) {
     ],
   });
 
-  const body = new URLSearchParams({
-    spm,
-    buyParams,
-  });
-
+  const body = new URLSearchParams({ spm, buyParams });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
 
@@ -65,15 +65,14 @@ async function postPair(itemId, skuId) {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "accept-language": "en-US,en;q=0.9,en-SG;q=0.8",
         "content-type": "application/x-www-form-urlencoded",
         cookie,
         origin: "https://www.lazada.sg",
         referer: "https://www.lazada.sg/",
-        "user-agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+        // Do not impersonate a browser fingerprint. Identify this as repo automation.
+        "user-agent": "kingyx3-alert-lazada-checkout/1.0 (GitHub Actions)",
       },
       body,
       redirect: "follow",
@@ -90,6 +89,7 @@ async function postPair(itemId, skuId) {
       "punish",
     ].some((marker) => lower.includes(marker));
     const redirectedToLogin = /\/login(?:[/?#]|$)/i.test(response.url);
+    const rateLimited = response.status === 429 || response.status === 403;
 
     console.log(
       JSON.stringify(
@@ -104,15 +104,22 @@ async function postPair(itemId, skuId) {
           responseBytes: Buffer.byteLength(text),
           challenge,
           redirectedToLogin,
+          rateLimited,
         },
         null,
         2,
       ),
     );
 
-    if (!response.ok || challenge || redirectedToLogin) {
+    if (challenge || redirectedToLogin || rateLimited) {
+      throw new StopBatchError(
+        `Stopping batch: Lazada returned a challenge, login redirect, or rate-limit response for item=${itemId}, sku=${skuId}.`,
+      );
+    }
+
+    if (!response.ok) {
       throw new Error(
-        `Lazada shipping POST was not clean for item=${itemId}, sku=${skuId}`,
+        `Lazada shipping POST returned HTTP ${response.status} for item=${itemId}, sku=${skuId}.`,
       );
     }
   } finally {
@@ -127,6 +134,7 @@ for (const [itemId, skuId] of pairs) {
     await postPair(String(itemId), String(skuId));
   } catch (error) {
     failed = true;
+
     if (error?.name === "AbortError") {
       console.error(`POST timed out for item=${itemId}, sku=${skuId}`);
     } else {
@@ -134,6 +142,12 @@ for (const [itemId, skuId] of pairs) {
         `POST failed for item=${itemId}, sku=${skuId}:`,
         error?.message || error,
       );
+    }
+
+    // Never keep probing when Lazada asks for verification, authentication,
+    // or indicates rate limiting. The next scheduled run can try again later.
+    if (error instanceof StopBatchError) {
+      break;
     }
   }
 }
