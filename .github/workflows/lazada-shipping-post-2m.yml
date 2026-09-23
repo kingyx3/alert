@@ -1,4 +1,4 @@
-name: Lazada Shipping POST (2-minute cadence)
+name: Lazada Shipping POST (1-minute cadence, 1-2pm SGT)
 
 on:
   workflow_dispatch:
@@ -12,15 +12,17 @@ on:
         required: false
         type: string
   schedule:
-    # GitHub Actions does not support a native 2-minute cron. Run every 6 minutes
-    # and execute at minute 0, +2 and +4 inside each job.
-    - cron: '*/6 * * * *'
+    # GitHub Actions has a 5-minute minimum schedule interval.
+    # Trigger every 5 minutes during 13:00-13:59 SGT and run once per minute
+    # inside each job to cover the intervening minutes.
+    - cron: '*/5 13 * * *'
+      timezone: 'Asia/Singapore'
 
 permissions:
   contents: read
 
 concurrency:
-  group: lazada-shipping-post-2m
+  group: lazada-shipping-post-1m-1pm-sgt
   cancel-in-progress: false
 
 jobs:
@@ -50,14 +52,20 @@ jobs:
           fi
           node -e 'const v=JSON.parse(process.env.LAZADA_ITEM_SKU_PAIRS); if (!Array.isArray(v) || !v.length || !v.every(p => Array.isArray(p) && p.length === 2)) process.exit(2)'
 
-      - name: POST all item/SKU pairs every 2 minutes
+      - name: POST all item/SKU pairs every minute during 13:00-13:59 SGT
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
-            echo "=== Lazada shipping POST batch ${attempt}/3 at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+          for attempt in 1 2 3 4 5; do
+            sgt_hour="$(TZ=Asia/Singapore date +%H)"
+            if [[ "${sgt_hour}" != "13" ]]; then
+              echo "Outside 13:00-13:59 SGT; stopping this job."
+              break
+            fi
+
+            echo "=== Lazada shipping POST batch ${attempt}/5 at $(TZ=Asia/Singapore date +%Y-%m-%dT%H:%M:%S%z) ==="
             node lazada-checkout-post/post-shipping.mjs
 
-            if [[ "${attempt}" -lt 3 ]]; then
-              sleep 120
+            if [[ "${attempt}" -lt 5 ]]; then
+              sleep 60
             fi
           done
