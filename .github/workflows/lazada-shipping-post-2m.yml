@@ -1,0 +1,65 @@
+name: Lazada Shipping POST (2-minute cadence)
+
+on:
+  workflow_dispatch:
+    inputs:
+      item_id:
+        description: Lazada item ID override
+        required: false
+        type: string
+      sku_id:
+        description: Lazada SKU ID override
+        required: false
+        type: string
+      quantity:
+        description: Quantity override
+        required: false
+        type: string
+  schedule:
+    # GitHub Actions does not support a native 2-minute cron. Run every 6 minutes
+    # and execute at minute 0, +2 and +4 inside each job.
+    - cron: '*/6 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lazada-shipping-post-2m
+  cancel-in-progress: false
+
+jobs:
+  post-shipping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      LAZADA_ITEM_ID: ${{ inputs.item_id || vars.LAZADA_ITEM_ID || '13822368851' }}
+      LAZADA_SKU_ID: ${{ inputs.sku_id || vars.LAZADA_SKU_ID || '124830542173' }}
+      LAZADA_QUANTITY: ${{ inputs.quantity || vars.LAZADA_QUANTITY || '1' }}
+      LAZADA_COOKIE: ${{ secrets.LAZADA_COOKIE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Validate secret
+        run: |
+          set -euo pipefail
+          if [[ -z "${LAZADA_COOKIE:-}" ]]; then
+            echo "Missing repository secret LAZADA_COOKIE." >&2
+            exit 2
+          fi
+
+      - name: POST shipping request every 2 minutes
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "=== Lazada shipping POST ${attempt}/3 at $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+            node lazada-checkout-post/post-shipping.mjs
+
+            if [[ "${attempt}" -lt 3 ]]; then
+              sleep 120
+            fi
+          done
