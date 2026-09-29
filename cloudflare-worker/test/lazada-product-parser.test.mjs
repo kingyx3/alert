@@ -36,6 +36,46 @@ test("collect-all-lists mode scans all product lists and keeps only TCG titles",
   );
 });
 
+test("Pokemon-branded plush and socks do not qualify as TCG products", () => {
+  const parsed = parseProducts(JSON.stringify({
+    mods: {
+      listItems: [
+        {
+          name: "Pokémon Center Original Plush Trumbeak",
+          itemId: "124956048317",
+          inStock: true,
+          sellerId: "1628720011",
+          sellerName: "Pokémon Store Online Singapore",
+        },
+        {
+          name: "Pokémon Center Original Socks",
+          itemId: "124957705070",
+          inStock: true,
+          sellerId: "1628720011",
+          sellerName: "Pokémon Store Online Singapore",
+        },
+        {
+          name: "Pokémon TCG Booster Bundle",
+          itemId: "TCG-VALID-1",
+          inStock: true,
+          sellerId: "1628720011",
+          sellerName: "Pokémon Store Online Singapore",
+        },
+      ],
+    },
+  }), {
+    collectAllLists: false,
+    keywords: ["tcg", "trading card"],
+    sellerIds: ["1628720011"],
+    sellerNames: ["pokemon store online singapore"],
+  });
+
+  assert.deepEqual(
+    parsed.tcgProducts.map((product) => product.skuId),
+    ["TCG-VALID-1"],
+  );
+});
+
 test("trusted source mode still selects the largest candidate list", () => {
   const parsed = parseProducts(payload, {
     collectAllLists: false,
@@ -82,7 +122,7 @@ test("seller allowlist keeps only the official Pokemon Lazada shop", () => {
     },
   }), {
     collectAllLists: false,
-    keywords: ["pokemon", "tcg"],
+    keywords: ["tcg", "trading card"],
     sellerIds: ["1628720011"],
     sellerNames: ["pokemon store online singapore"],
   });

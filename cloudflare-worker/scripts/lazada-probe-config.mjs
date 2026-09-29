@@ -11,7 +11,7 @@ export const BLOCK_MARKERS = [
   "are you a robot",
 ];
 
-const tcgKeywords = String(process.env.TCG_KEYWORDS || "pokemon,pokémon,tcg,trading card")
+const tcgKeywords = String(process.env.TCG_KEYWORDS || "tcg,trading card")
   .split(",")
   .map(normalizeSearchText)
   .filter(Boolean);
