@@ -139,7 +139,7 @@ jobs:
           BATCH_ID: ${{ needs.gate.outputs.batch_id }}
           PROBE_SLOT: ${{ matrix.slot }}
           PROBE_ARTIFACT_DIR: probe-artifacts-${{ matrix.slot }}
-          TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
+          TCG_KEYWORDS: tcg,trading card
         run: node cloudflare-worker/scripts/lazada-playwright-probe.mjs
 
       - name: Upload primary diagnostics
@@ -231,7 +231,7 @@ jobs:
           BATCH_ID: ${{ needs.gate.outputs.batch_id }}
           PROBE_SLOT: ${{ matrix.slot }}
           PROBE_ARTIFACT_DIR: rescue-artifacts-${{ matrix.slot }}
-          TCG_KEYWORDS: pokemon,pokémon,tcg,trading card
+          TCG_KEYWORDS: tcg,trading card
         run: node cloudflare-worker/scripts/lazada-playwright-probe.mjs
 
       - name: Upload rescue diagnostics
