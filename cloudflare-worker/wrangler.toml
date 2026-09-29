@@ -33,7 +33,7 @@ RECOVERY_SUCCESS_TARGET = "6"
 BLOCK_BACKOFF_SECONDS = "1800"
 ERROR_BACKOFF_SECONDS = "60"
 MISSING_CONFIRMATIONS = "2"
-TCG_KEYWORDS = "pokemon,pokémon,tcg,trading card"
+TCG_KEYWORDS = "tcg,trading card"
 # Notify immediately even when an in-stock SKU is first discovered before a baseline exists.
 ALERT_ON_FIRST_RUN = "true"
 # Final defense: snapshots that finish after 20:00 SGT may reconcile state but cannot send Telegram.
