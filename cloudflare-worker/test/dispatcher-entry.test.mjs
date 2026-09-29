@@ -110,11 +110,11 @@ test("Cloudflare dispatcher never calls GitHub outside 08:00-20:00 SGT", async (
   }
 });
 
-test("same-batch alert deduplication is SKU-specific across URL 1 and URL 2", async () => {
+test("same-batch alert deduplication is SKU-specific and later batches do not repeat persistent stock", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
-    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "true",
     TELEGRAM_BOT_TOKEN: "test-bot-token",
@@ -193,12 +193,10 @@ test("same-batch alert deduplication is SKU-specific across URL 1 and URL 2", as
       complete: false,
     });
     assert.equal(stillInStock.ok, true);
-    assert.equal(telegramBodies.length, 3, "next 10-second batch should alert both still-in-stock SKUs again");
-    assert.match(telegramBodies[2].text, /1001/);
-    assert.match(telegramBodies[2].text, /1002/);
+    assert.equal(telegramBodies.length, 2, "later batches must not re-alert SKUs that never went out of stock");
 
     const meta = state.values.get("meta");
-    assert.equal(meta.lastAlertBatchId, "cf-101");
+    assert.equal(meta.lastAlertBatchId, "cf-100");
     assert.deepEqual(new Set(meta.lastAlertSkuKeys), new Set(["skuId:1001", "skuId:1002"]));
   } finally {
     globalThis.fetch = originalFetch;
@@ -209,7 +207,7 @@ test("older Cloudflare generation is superseded even when its runner finishes la
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
-    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
   });
@@ -240,7 +238,7 @@ test("partial source snapshot cannot flip a confirmed in-stock SKU out of stock"
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
-    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
   });
@@ -276,11 +274,11 @@ test("partial source snapshot cannot flip a confirmed in-stock SKU out of stock"
   assert.equal(state.values.get("inventory")["skuId:1001"].available, false);
 });
 
-test("late snapshots reconcile state but Telegram waits until the next active window", async () => {
+test("late snapshots reconcile state without replaying stale stock next morning", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
     EXTERNAL_SNAPSHOT_MODE: "true",
-    TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
+    TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
     ALERT_WINDOW_ENFORCED: "true",
@@ -334,7 +332,7 @@ test("late snapshots reconcile state but Telegram waits until the next active wi
       complete: false,
     });
     assert.equal(morning.ok, true);
-    assert.equal(telegramCalls, 1, "still-available stock should notify immediately at the next active check");
+    assert.equal(telegramCalls, 0, "already-known stock must not be replayed as a fresh restock next morning");
   } finally {
     Date.now = originalDateNow;
     globalThis.fetch = originalFetch;
