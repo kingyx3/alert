@@ -24,7 +24,7 @@ function normalizeText(value) {
 }
 
 function keywords(env) {
-  return String(env.TCG_KEYWORDS || "pokemon,pokémon,tcg,trading card")
+  return String(env.TCG_KEYWORDS || "tcg,trading card")
     .split(",")
     .map((value) => normalizeText(value.trim()))
     .filter(Boolean);
@@ -91,64 +91,6 @@ function alertedSkuKeys(meta, alertBatchId) {
   return new Set(Array.isArray(meta?.lastAlertSkuKeys) ? meta.lastAlertSkuKeys.map(String) : []);
 }
 
-function formatPrice(product) {
-  if (product?.priceShow) return String(product.priceShow);
-  const price = Number(product?.price);
-  if (Number.isFinite(price)) return `$${price.toFixed(2)}`;
-  return "Price unavailable";
-}
-
-async function sendPersistentStockTelegram(env, products, checkedAt) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHANNEL_ID) {
-    throw new Error("TELEGRAM_BOT_TOKEN/TELEGRAM_CHANNEL_ID Worker secrets are not configured");
-  }
-
-  const lines = [
-    "🚨 Lazada Pokémon TCG in stock",
-    `${products.length} SKU${products.length === 1 ? "" : "s"} currently available`,
-    `Checked: ${checkedAt}`,
-    "",
-  ];
-
-  for (const [index, product] of products.entries()) {
-    lines.push(`${index + 1}. ${String(product.name || "").trim()}`);
-    lines.push(`   ${formatPrice(product)}`);
-    if (product.skuId || product.sku) lines.push(`   SKU: ${product.skuId || product.sku}`);
-    if (product.url) lines.push(`   ${product.url}`);
-    lines.push("");
-  }
-
-  const chunks = [];
-  let current = "";
-  for (const line of lines) {
-    const next = `${current}${line}\n`;
-    if (next.length > 3900 && current) {
-      chunks.push(current.trimEnd());
-      current = `${line}\n`;
-    } else {
-      current = next;
-    }
-  }
-  if (current.trim()) chunks.push(current.trimEnd());
-
-  const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`;
-  for (const text of chunks) {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        chat_id: env.TELEGRAM_CHANNEL_ID,
-        text,
-        disable_web_page_preview: true,
-      }),
-    });
-    const responseText = await response.text();
-    if (!response.ok) {
-      throw new Error(`Telegram send failed HTTP ${response.status}: ${responseText.slice(0, 250)}`);
-    }
-  }
-}
-
 export class LazadaMonitor extends ExternalSnapshotMonitor {
   async ingestSnapshot(payload) {
     const previousIngest = this._ingestTail || Promise.resolve();
@@ -197,43 +139,6 @@ export class LazadaMonitor extends ExternalSnapshotMonitor {
         const previous = key ? loaded.inventory[key] : null;
         return !previous || previous.available !== true;
       });
-      const persistentProducts = initialized
-        ? availableProducts.filter((product) => {
-            const key = productKey(product);
-            const previous = key ? loaded.inventory[key] : null;
-            return previous?.available === true && key && !alreadyAlerted.has(key);
-          })
-        : [];
-
-      if (alertBatchId && persistentProducts.length > 0 && alertsAllowed) {
-        try {
-          await sendPersistentStockTelegram(this.env, persistentProducts, checkedAt);
-        } catch (error) {
-          this.log(loaded.meta, "external.snapshot.telegram_error", {
-            batchId,
-            alertBatchId,
-            persistentStock: true,
-            message: String(error?.message || error),
-          });
-          return { ok: false, status: 502, error: "telegram_send_failed" };
-        }
-
-        const keys = new Set(alreadyAlerted);
-        for (const product of persistentProducts) {
-          const key = productKey(product);
-          if (key) keys.add(key);
-        }
-        loaded.meta.lastAlertBatchId = alertBatchId;
-        loaded.meta.lastAlertSkuKeys = [...keys];
-        loaded.meta.lastAlertAt = checkedAt;
-        this.log(loaded.meta, "external.snapshot.stock_still_available_alert", {
-          batchId,
-          alertBatchId,
-          products: persistentProducts.length,
-          skuKeys: [...keys],
-        });
-        await this.persist(loaded.inventory, loaded.meta);
-      }
 
       const result = await super.ingestSnapshot(payload);
 
