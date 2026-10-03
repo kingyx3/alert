@@ -270,7 +270,7 @@ test("first clean concurrent runner sends exactly one Telegram restock alert bef
 });
 
 test("Cloudflare dispatcher safely skips when no GitHub token is configured", async () => {
-  const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 0, 3, 0));
+  const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 2, 3, 0));
   assert.deepEqual(result, {
     ok: false,
     skipped: true,
@@ -287,7 +287,7 @@ test("Cloudflare dispatcher sends workflow_dispatch with a stable 10-second key"
   };
 
   try {
-    const scheduledTime = Date.UTC(2026, 8, 12, 0, 3, 0);
+    const scheduledTime = Date.UTC(2026, 8, 12, 2, 3, 0);
     const result = await dispatchGithubWorkflow({
       GITHUB_ACTIONS_TOKEN: "test-token",
       GITHUB_DISPATCH_REPOSITORY: "kingyx3/alert",
