@@ -4,7 +4,7 @@ Cloudflare Worker + Durable Object + GitHub Actions monitor for Lazada Pokémon 
 
 ## Production architecture
 
-- Cloudflare Cron runs once per minute during **08:00-19:59 Singapore time (SGT)**.
+- Cloudflare Cron runs once per minute during **09:30-13:59 Singapore time (SGT)**.
 - Each Cron tick dispatches six GitHub Actions probe batches at 10-second offsets: `0, 10, 20, 30, 40, 50` seconds.
 - Each GitHub Actions batch launches four independent Playwright probes against the two trusted Lazada listing endpoints. Rescue runners are used when the primary wave cannot produce a clean snapshot.
 - Successful probes POST normalized snapshots to the Cloudflare Worker, where a Durable Object serializes inventory state and alert decisions.
@@ -50,7 +50,7 @@ The production payloads supplied on 2026-09-18 contained `inStock: false`, an `o
 - `ALERT_WINDOW_ENFORCED=true`
 - `TCG_KEYWORDS=pokemon,pokémon,tcg,trading card`
 
-The Cloudflare Cron expression is `*/1 0-11 * * *`, which maps to 08:00-19:59 SGT because Cloudflare Cron uses UTC.
+The Cloudflare Cron expressions are `30-59 1 * * *` and `* 2-5 * * *`, which map to 09:30-13:59 SGT because Cloudflare Cron uses UTC.
 
 ## Required production values
 
