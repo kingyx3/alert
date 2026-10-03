@@ -99,7 +99,7 @@ jobs:
             echo "Propagation check ${attempt}: ${body}"
             if grep -q '"externalSnapshotMode": true' <<<"${body}" && \
                grep -q '"sourceEngine": "github-actions-playwright"' <<<"${body}" && \
-               grep -q '"activeWindowSgt": "08:00-20:00"' <<<"${body}"; then
+               grep -q '"activeWindowSgt": "09:30-14:00"' <<<"${body}"; then
               echo "External-snapshot Worker is live with the expected active window."
               break
             fi
@@ -113,4 +113,4 @@ jobs:
           scheduler="$(curl --silent --show-error --fail --max-time 10 "${MONITOR_URL%/}/schedulerz")"
           echo "Scheduler status: ${scheduler}"
           grep -q '"frequencySeconds": 10' <<<"${scheduler}"
-          grep -q '"activeWindowSgt": "08:00-20:00"' <<<"${scheduler}"
+          grep -q '"activeWindowSgt": "09:30-14:00"' <<<"${scheduler}"

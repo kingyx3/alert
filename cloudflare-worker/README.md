@@ -9,7 +9,7 @@ Cloudflare Worker + Durable Object + GitHub Actions monitor for Lazada Pokémon 
 - Each GitHub Actions batch launches four independent Playwright probes against the two trusted Lazada listing endpoints. Rescue runners are used when the primary wave cannot produce a clean snapshot.
 - Successful probes POST normalized snapshots to the Cloudflare Worker, where a Durable Object serializes inventory state and alert decisions.
 - GitHub's `*/5` schedule is a delayed fallback only; it runs browsers when the Worker has not accepted a fresh snapshot recently.
-- Production Telegram alerts are suppressed outside **08:00-20:00 SGT**.
+- Production Telegram alerts are suppressed outside **09:30-14:00 SGT**.
 
 The monitor is block-aware rather than block-evasive. HTTP 403/429 responses and anti-bot challenges are treated as failures; the system does not solve CAPTCHAs, rotate identities, or bypass access controls.
 
@@ -99,7 +99,7 @@ Changes merged to `main` are deployed through `.github/workflows/deploy-cloudfla
 
 After deployment, verify:
 
-1. `/schedulerz` reports the 10-second cadence and `08:00-20:00` SGT active window.
+1. `/schedulerz` reports the 10-second cadence and `09:30-14:00` SGT active window.
 2. `/healthz` shows a recent `lastSuccessAt` during active hours.
 3. Recent `Lazada Playwright Monitor` runs show at least one clean runner with `ingestOk: true`.
 4. A known `inStock: false` item remains unavailable even though it is present in `listItems`, and a controlled false→true stock transition is recognized and alerted.

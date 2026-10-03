@@ -8,12 +8,13 @@ const DISPATCHES_PER_CRON = 60 * 1000 / DISPATCH_INTERVAL_MS;
 const DISPATCH_CLAIMS_STORAGE_KEY = "githubDispatchClaims";
 const DISPATCH_CLAIM_TTL_MS = 5 * 60 * 1000;
 const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
-const ACTIVE_START_HOUR_SGT = 8;
-const ACTIVE_END_HOUR_SGT = 20;
+const ACTIVE_START_MINUTE_SGT = 9 * 60 + 30;
+const ACTIVE_END_MINUTE_SGT = 14 * 60;
 
 function isDispatchWindowSgt(timestamp = Date.now()) {
-  const hour = new Date(Number(timestamp) + SGT_OFFSET_MS).getUTCHours();
-  return hour >= ACTIVE_START_HOUR_SGT && hour < ACTIVE_END_HOUR_SGT;
+  const local = new Date(Number(timestamp) + SGT_OFFSET_MS);
+  const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
+  return minute >= ACTIVE_START_MINUTE_SGT && minute < ACTIVE_END_MINUTE_SGT;
 }
 
 function normalizeText(value) {
@@ -277,7 +278,7 @@ export async function dispatchGithubWorkflow(env, scheduledTime = Date.now()) {
     return {
       ok: true,
       skipped: true,
-      reason: "outside_08_20_sgt_window",
+      reason: "outside_0930_1400_sgt_window",
       dispatchKey,
       scheduledAt: new Date(dispatchTime).toISOString(),
     };
@@ -328,7 +329,7 @@ async function dispatchAndLog(env, scheduledTime, slot) {
     const result = {
       ok: true,
       skipped: true,
-      reason: "outside_08_20_sgt_window",
+      reason: "outside_0930_1400_sgt_window",
       dispatchKey,
       scheduledAt: new Date(dispatchTime).toISOString(),
     };
@@ -365,7 +366,7 @@ export default {
   async scheduled(controller, env, ctx) {
     const scheduledTime = Number(controller?.scheduledTime || Date.now());
     if (!isDispatchWindowSgt(scheduledTime)) {
-      console.log("Cloudflare scheduled event outside 08:00-20:00 SGT; no GitHub workflow will be created.");
+      console.log("Cloudflare scheduled event outside 09:30-14:00 SGT; no GitHub workflow will be created.");
       return undefined;
     }
 
@@ -394,7 +395,7 @@ export default {
         status: config.configured ? "ok" : "fallback",
         scheduler: "cloudflare-cron",
         frequencySeconds: 10,
-        activeWindowSgt: "08:00-20:00",
+        activeWindowSgt: "09:30-14:00",
         cronFrequencySeconds: 60,
         dispatchOffsetsSeconds: [0, 10, 20, 30, 40, 50],
         dispatchDeduplication: "durable-object-10-second-key",

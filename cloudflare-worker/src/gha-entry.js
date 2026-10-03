@@ -5,8 +5,8 @@ const DEFAULT_EXTERNAL_STALE_SECONDS = 20 * 60;
 const MAX_SNAPSHOT_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_PRODUCTS = 250;
 const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
-const ACTIVE_START_HOUR_SGT = 8;
-const ACTIVE_END_HOUR_SGT = 20;
+const ACTIVE_START_MINUTE_SGT = 9 * 60 + 30;
+const ACTIVE_END_MINUTE_SGT = 14 * 60;
 
 function asInt(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -24,8 +24,9 @@ function asBool(value, fallback = false) {
 }
 
 function isExternalActiveSgt(timestamp = Date.now()) {
-  const hour = new Date(Number(timestamp) + SGT_OFFSET_MS).getUTCHours();
-  return hour >= ACTIVE_START_HOUR_SGT && hour < ACTIVE_END_HOUR_SGT;
+  const local = new Date(Number(timestamp) + SGT_OFFSET_MS);
+  const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
+  return minute >= ACTIVE_START_MINUTE_SGT && minute < ACTIVE_END_MINUTE_SGT;
 }
 
 function nextExternalActiveStart(timestamp = Date.now()) {
@@ -33,9 +34,9 @@ function nextExternalActiveStart(timestamp = Date.now()) {
   const year = local.getUTCFullYear();
   const month = local.getUTCMonth();
   const day = local.getUTCDate();
-  const hour = local.getUTCHours();
-  const startDay = hour < ACTIVE_START_HOUR_SGT ? day : day + 1;
-  return Date.UTC(year, month, startDay, ACTIVE_START_HOUR_SGT, 0, 0, 0) - SGT_OFFSET_MS;
+  const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
+  const startDay = minute < ACTIVE_START_MINUTE_SGT ? day : day + 1;
+  return Date.UTC(year, month, startDay, 0, ACTIVE_START_MINUTE_SGT, 0, 0) - SGT_OFFSET_MS;
 }
 
 function normalizeText(value) {
@@ -202,7 +203,7 @@ function externalHealth(meta, staleMs) {
   return {
     status: degraded ? "degraded" : "ok",
     mode: sleeping ? "sleeping" : "active",
-    activeWindowSgt: "08:00-20:00",
+    activeWindowSgt: "09:30-14:00",
     sourceEngine: SOURCE_ENGINE_GHA,
     externalSnapshotMode: true,
     healthStaleAfterSeconds: Math.round(staleMs / 1000),
@@ -428,7 +429,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
           alertBatchId,
           runnerSlot,
           complete,
-          reason: "outside_08_20_sgt_window",
+          reason: "outside_0930_1400_sgt_window",
           products: alertProducts.length,
         });
       }
@@ -521,7 +522,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
         sourceEngine: SOURCE_ENGINE_GHA,
         externalSnapshotMode: true,
         externalHealthStaleSeconds: this.externalStaleMs() / 1000,
-        activeWindowSgt: "08:00-20:00",
+        activeWindowSgt: "09:30-14:00",
         browserRunEnabled: false,
       };
       return jsonResponse(payload, response.status);
