@@ -77,7 +77,7 @@ test("concurrent claims for the same dispatch key serialize to one winner", asyn
   assert.equal(results.filter((result) => !result.claimed).length, 2);
 });
 
-test("Cloudflare dispatcher never calls GitHub outside 08:00-20:00 SGT", async () => {
+test("Cloudflare dispatcher never calls GitHub outside 09:30-14:00 SGT", async () => {
   const originalFetch = globalThis.fetch;
   let githubCalls = 0;
   globalThis.fetch = async () => {
@@ -93,15 +93,15 @@ test("Cloudflare dispatcher never calls GitHub outside 08:00-20:00 SGT", async (
   };
 
   try {
-    const beforeOpen = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T07:59:59+08:00"));
-    const atClose = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T20:00:00+08:00"));
+    const beforeOpen = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T09:29:59+08:00"));
+    const atClose = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T14:00:00+08:00"));
     assert.equal(beforeOpen.skipped, true);
-    assert.equal(beforeOpen.reason, "outside_08_20_sgt_window");
+    assert.equal(beforeOpen.reason, "outside_0930_1400_sgt_window");
     assert.equal(atClose.skipped, true);
-    assert.equal(atClose.reason, "outside_08_20_sgt_window");
+    assert.equal(atClose.reason, "outside_0930_1400_sgt_window");
     assert.equal(githubCalls, 0);
 
-    const atOpen = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T08:00:00+08:00"));
+    const atOpen = await dispatchGithubWorkflow(env, Date.parse("2026-09-17T09:30:00+08:00"));
     assert.equal(atOpen.ok, true);
     assert.equal(atOpen.status, 204);
     assert.equal(githubCalls, 1);
@@ -113,7 +113,6 @@ test("Cloudflare dispatcher never calls GitHub outside 08:00-20:00 SGT", async (
 test("same-batch alert deduplication is SKU-specific and later batches do not repeat persistent stock", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "true",
@@ -206,7 +205,6 @@ test("same-batch alert deduplication is SKU-specific and later batches do not re
 test("older Cloudflare generation is superseded even when its runner finishes later", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -237,7 +235,6 @@ test("older Cloudflare generation is superseded even when its runner finishes la
 test("partial source snapshot cannot flip a confirmed in-stock SKU out of stock", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -277,7 +274,6 @@ test("partial source snapshot cannot flip a confirmed in-stock SKU out of stock"
 test("late snapshots reconcile state without replaying stale stock next morning", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -302,7 +298,7 @@ test("late snapshots reconcile state without replaying stale stock next morning"
   };
 
   try {
-    Date.now = () => Date.parse("2026-09-17T19:59:00+08:00");
+    Date.now = () => Date.parse("2026-09-17T13:59:00+08:00");
     await monitor.ingestSnapshot({
       batchId: "cf-400",
       runnerSlot: "1",
@@ -311,7 +307,7 @@ test("late snapshots reconcile state without replaying stale stock next morning"
       complete: true,
     });
 
-    Date.now = () => Date.parse("2026-09-17T20:05:00+08:00");
+    Date.now = () => Date.parse("2026-09-17T14:05:00+08:00");
     const lateStock = await monitor.ingestSnapshot({
       batchId: "cf-401:source-1",
       runnerSlot: "1",
@@ -320,10 +316,10 @@ test("late snapshots reconcile state without replaying stale stock next morning"
       complete: false,
     });
     assert.equal(lateStock.ok, true);
-    assert.equal(telegramCalls, 0, "no Telegram may be sent after 20:00 SGT");
+    assert.equal(telegramCalls, 0, "no Telegram may be sent after 14:00 SGT");
     assert.equal(state.values.get("inventory")["skuId:1001"].available, true);
 
-    Date.now = () => Date.parse("2026-09-18T08:00:00+08:00");
+    Date.now = () => Date.parse("2026-09-18T09:30:00+08:00");
     const morning = await monitor.ingestSnapshot({
       batchId: "cf-500:source-1",
       runnerSlot: "1",

@@ -43,7 +43,6 @@ function product(overrides = {}) {
 test("external snapshots are accepted once per GHA batch", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -107,7 +106,6 @@ test("external snapshots are accepted once per GHA batch", async () => {
 test("partial fast-path snapshots never mark unseen SKUs missing", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -147,7 +145,6 @@ test("partial fast-path snapshots never mark unseen SKUs missing", async () => {
 test("older overlapping dispatch snapshots cannot roll inventory backward", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -185,7 +182,6 @@ test("older overlapping dispatch snapshots cannot roll inventory backward", asyn
 test("first clean concurrent runner sends exactly one Telegram restock alert before bookkeeping", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -270,7 +266,7 @@ test("first clean concurrent runner sends exactly one Telegram restock alert bef
 });
 
 test("Cloudflare dispatcher safely skips when no GitHub token is configured", async () => {
-  const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 0, 3, 0));
+  const result = await dispatchGithubWorkflow({}, Date.UTC(2026, 8, 12, 2, 3, 0));
   assert.deepEqual(result, {
     ok: false,
     skipped: true,
@@ -287,7 +283,7 @@ test("Cloudflare dispatcher sends workflow_dispatch with a stable 10-second key"
   };
 
   try {
-    const scheduledTime = Date.UTC(2026, 8, 12, 0, 3, 0);
+    const scheduledTime = Date.UTC(2026, 8, 12, 2, 3, 0);
     const result = await dispatchGithubWorkflow({
       GITHUB_ACTIONS_TOKEN: "test-token",
       GITHUB_DISPATCH_REPOSITORY: "kingyx3/alert",
