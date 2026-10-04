@@ -43,7 +43,6 @@ function product(overrides = {}) {
 test("external snapshots are accepted once per GHA batch", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -107,7 +106,6 @@ test("external snapshots are accepted once per GHA batch", async () => {
 test("partial fast-path snapshots never mark unseen SKUs missing", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -147,7 +145,6 @@ test("partial fast-path snapshots never mark unseen SKUs missing", async () => {
 test("older overlapping dispatch snapshots cannot roll inventory backward", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -185,7 +182,6 @@ test("older overlapping dispatch snapshots cannot roll inventory backward", asyn
 test("first clean concurrent runner sends exactly one Telegram restock alert before bookkeeping", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "pokemon,pokémon,tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",

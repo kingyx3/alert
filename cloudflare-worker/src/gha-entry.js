@@ -1,9 +1,10 @@
-import worker, { LazadaMonitor as BrowserRunMonitor } from "./entry.js";
-
 const SOURCE_ENGINE_GHA = "github-actions-playwright";
 const DEFAULT_EXTERNAL_STALE_SECONDS = 20 * 60;
 const MAX_SNAPSHOT_AGE_MS = 2 * 60 * 60 * 1000;
 const MAX_PRODUCTS = 250;
+const DEFAULT_MISSING_CONFIRMATIONS = 2;
+const MAX_EVENTS = 50;
+const MAX_DEBUG_INVENTORY = 150;
 const SGT_OFFSET_MS = 8 * 60 * 60 * 1000;
 const ACTIVE_START_MINUTE_SGT = 9 * 60 + 30;
 const ACTIVE_END_MINUTE_SGT = 14 * 60;
@@ -37,6 +38,10 @@ function nextExternalActiveStart(timestamp = Date.now()) {
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
   const startDay = minute < ACTIVE_START_MINUTE_SGT ? day : day + 1;
   return Date.UTC(year, month, startDay, 0, ACTIVE_START_MINUTE_SGT, 0, 0) - SGT_OFFSET_MS;
+}
+
+function nowIso() {
+  return new Date().toISOString();
 }
 
 function normalizeText(value) {
@@ -224,9 +229,41 @@ function externalHealth(meta, staleMs) {
   };
 }
 
-export class LazadaMonitor extends BrowserRunMonitor {
-  externalSnapshotMode() {
-    return asBool(this.env.EXTERNAL_SNAPSHOT_MODE, false);
+export class LazadaMonitor {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async loadState() {
+    const [inventory, meta] = await Promise.all([
+      this.state.storage.get("inventory"),
+      this.state.storage.get("meta"),
+    ]);
+    return {
+      inventory: inventory || {},
+      meta: meta || {
+        initialized: false,
+        recentEvents: [],
+        consecutiveFailures: 0,
+        nextAllowedCheckAt: 0,
+      },
+    };
+  }
+
+  log(meta, event, fields = {}) {
+    const entry = { ts: nowIso(), event, ...fields };
+    console.log(JSON.stringify(entry));
+    meta.recentEvents = [...(meta.recentEvents || []), entry].slice(-MAX_EVENTS);
+    return entry;
+  }
+
+  async persist(inventory, meta) {
+    await this.state.storage.put({ inventory, meta });
+  }
+
+  missingConfirmations() {
+    return asInt(this.env.MISSING_CONFIRMATIONS, DEFAULT_MISSING_CONFIRMATIONS, 1, 20);
   }
 
   externalStaleMs() {
@@ -238,12 +275,7 @@ export class LazadaMonitor extends BrowserRunMonitor {
     ) * 1000;
   }
 
-  sourceEngine() {
-    return this.externalSnapshotMode() ? SOURCE_ENGINE_GHA : super.sourceEngine();
-  }
-
   async ensureRunning() {
-    if (!this.externalSnapshotMode()) return super.ensureRunning();
     const { inventory, meta } = await this.loadState();
     await this.state.storage.deleteAlarm();
     meta.sourceEngine = SOURCE_ENGINE_GHA;
@@ -259,7 +291,6 @@ export class LazadaMonitor extends BrowserRunMonitor {
   }
 
   async alarm() {
-    if (!this.externalSnapshotMode()) return super.alarm();
     await this.state.storage.deleteAlarm();
     const { inventory, meta } = await this.loadState();
     meta.nextAlarmAt = null;
@@ -269,7 +300,6 @@ export class LazadaMonitor extends BrowserRunMonitor {
   }
 
   async runCheck(trigger, inventoryArg = null, metaArg = null) {
-    if (!this.externalSnapshotMode()) return super.runCheck(trigger, inventoryArg, metaArg);
     const loaded = inventoryArg && metaArg
       ? { inventory: inventoryArg, meta: metaArg }
       : await this.loadState();
@@ -287,10 +317,6 @@ export class LazadaMonitor extends BrowserRunMonitor {
   }
 
   async ingestSnapshot(payload) {
-    if (!this.externalSnapshotMode()) {
-      return { ok: false, status: 409, error: "external_snapshot_mode_disabled" };
-    }
-
     const batchId = String(payload?.batchId || "").trim();
     const alertBatchId = alertBatchIdFor(batchId);
     const runnerSlot = String(payload?.runnerSlot || "").trim() || null;
@@ -507,35 +533,89 @@ export class LazadaMonitor extends BrowserRunMonitor {
       return jsonResponse(result, result.status || (result.ok ? 200 : 400));
     }
 
-    if (this.externalSnapshotMode() && request.method === "GET" && url.pathname === "/healthz") {
+    if (request.method === "POST" && url.pathname === "/ensure-running") {
+      await this.ensureRunning();
+      return jsonResponse({ ok: true });
+    }
+
+    if (request.method === "POST" && url.pathname === "/check") {
+      const { inventory, meta } = await this.loadState();
+      const result = await this.runCheck("manual", inventory, meta);
+      return jsonResponse(result, result.ok ? 200 : 502);
+    }
+
+    if (request.method === "GET" && url.pathname === "/healthz") {
       const { meta } = await this.loadState();
       return jsonResponse(externalHealth(meta, this.externalStaleMs()));
     }
 
-    if (this.externalSnapshotMode() && request.method === "GET" && url.pathname === "/debug") {
-      const response = await super.fetch(request);
-      const payload = await response.json();
-      const { meta } = await this.loadState();
-      payload.health = externalHealth(meta, this.externalStaleMs());
-      payload.config = {
-        ...(payload.config || {}),
-        sourceEngine: SOURCE_ENGINE_GHA,
-        externalSnapshotMode: true,
-        externalHealthStaleSeconds: this.externalStaleMs() / 1000,
-        activeWindowSgt: "09:30-14:00",
-        browserRunEnabled: false,
-      };
-      return jsonResponse(payload, response.status);
+    if (request.method === "GET" && url.pathname === "/debug") {
+      const { inventory, meta } = await this.loadState();
+      const inventoryRows = Object.entries(inventory)
+        .slice(0, MAX_DEBUG_INVENTORY)
+        .map(([key, record]) => ({
+          key,
+          available: record.available,
+          missingStreak: record.missingStreak || 0,
+          firstSeenAt: record.firstSeenAt || null,
+          lastSeenAt: record.lastSeenAt || null,
+          lastChangedAt: record.lastChangedAt || null,
+          sku: record.product?.skuId || record.product?.sku || null,
+          name: record.product?.name || null,
+          url: record.product?.url || null,
+        }));
+      return jsonResponse({
+        health: externalHealth(meta, this.externalStaleMs()),
+        config: {
+          sourceEngine: SOURCE_ENGINE_GHA,
+          externalSnapshotMode: true,
+          externalHealthStaleSeconds: this.externalStaleMs() / 1000,
+          activeWindowSgt: "09:30-14:00",
+          missingConfirmations: this.missingConfirmations(),
+          keywords: keywords(this.env),
+        },
+        meta,
+        inventory: inventoryRows,
+        inventoryTruncated: Object.keys(inventory).length > MAX_DEBUG_INVENTORY,
+      });
     }
 
-    return super.fetch(request);
+    return jsonResponse({ error: "not_found" }, 404);
   }
 }
 
 export default {
-  ...worker,
-  async fetch(request, env, ctx) {
+  async scheduled(_controller, env, ctx) {
+    ctx.waitUntil(
+      monitorStub(env).fetch("https://monitor.internal/ensure-running", { method: "POST" }),
+    );
+  },
+
+  async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (request.method === "GET" && url.pathname === "/") {
+      return jsonResponse({
+        service: "lazada-tcg-restock-monitor",
+        health: "/healthz",
+        debug: "/debug (Bearer token required)",
+        manualCheck: "/check (POST, Bearer token required)",
+      });
+    }
+
+    if (request.method === "GET" && url.pathname === "/healthz") {
+      return monitorStub(env).fetch("https://monitor.internal/healthz");
+    }
+
+    if (["/debug", "/check"].includes(url.pathname)) {
+      if (!authorized(request, env)) {
+        return jsonResponse({ error: "unauthorized" }, 401, { "www-authenticate": "Bearer" });
+      }
+      return monitorStub(env).fetch(`https://monitor.internal${url.pathname}`, {
+        method: request.method,
+      });
+    }
+
     if (request.method === "POST" && url.pathname === "/snapshot") {
       if (!authorized(request, env)) {
         return jsonResponse({ error: "unauthorized" }, 401, { "www-authenticate": "Bearer" });
@@ -547,6 +627,6 @@ export default {
         body,
       });
     }
-    return worker.fetch(request, env, ctx);
+    return jsonResponse({ error: "not_found" }, 404);
   },
 };

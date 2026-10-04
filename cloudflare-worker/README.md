@@ -42,8 +42,6 @@ The production payloads supplied on 2026-09-18 contained `inStock: false`, an `o
 
 `wrangler.toml` is the production source of non-secret runtime configuration. Key values currently include:
 
-- `EXTERNAL_SNAPSHOT_MODE=true`
-- `CHECK_INTERVAL_SECONDS=10`
 - `EXTERNAL_HEALTH_STALE_SECONDS=300`
 - `MISSING_CONFIRMATIONS=2`
 - `ALERT_ON_FIRST_RUN=true`
@@ -77,7 +75,7 @@ The Worker must also receive `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `DEBUG
 - `GET /healthz` — public health status. During the active window, a snapshot older than the configured stale threshold is degraded. Outside the window the service reports sleeping/healthy behavior rather than treating the intentional pause as an outage.
 - `GET /schedulerz` — scheduler configuration, active window, dispatch cadence, target repository/workflow, and fallback mode.
 - `GET /debug` — detailed Durable Object state and recent events; requires `Authorization: Bearer <DEBUG_TOKEN>`.
-- `POST /check` — protected manual check endpoint. In external snapshot mode the Worker itself does not scrape Lazada; production source reads come from GitHub Actions Playwright probes.
+- `POST /check` — protected manual check endpoint. The Worker itself does not scrape Lazada; production source reads come from GitHub Actions Playwright probes.
 - GitHub Actions artifacts contain `probe.json` diagnostics for each runner, including product counts, block markers, ingestion status, and timings.
 
 Useful events include `external.snapshot.accepted`, `external.snapshot.superseded`, `external.snapshot.duplicate`, `external.snapshot.telegram_error`, `telegram.sent`, and GitHub dispatch logs.

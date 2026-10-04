@@ -113,7 +113,6 @@ test("Cloudflare dispatcher never calls GitHub outside 09:30-14:00 SGT", async (
 test("same-batch alert deduplication is SKU-specific and later batches do not repeat persistent stock", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "true",
@@ -206,7 +205,6 @@ test("same-batch alert deduplication is SKU-specific and later batches do not re
 test("older Cloudflare generation is superseded even when its runner finishes later", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -237,7 +235,6 @@ test("older Cloudflare generation is superseded even when its runner finishes la
 test("partial source snapshot cannot flip a confirmed in-stock SKU out of stock", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
@@ -277,7 +274,6 @@ test("partial source snapshot cannot flip a confirmed in-stock SKU out of stock"
 test("late snapshots reconcile state without replaying stale stock next morning", async () => {
   const state = makeState();
   const monitor = new LazadaMonitor(state, {
-    EXTERNAL_SNAPSHOT_MODE: "true",
     TCG_KEYWORDS: "tcg,trading card",
     MISSING_CONFIRMATIONS: "2",
     ALERT_ON_FIRST_RUN: "false",
